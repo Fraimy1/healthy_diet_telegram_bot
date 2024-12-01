@@ -1,0 +1,16 @@
+*.env
+
+# Model weights are not included
+*.h5
+*.pkl
+model/model_weights/
+
+
+# All data is not included
+*.csv
+*.log
+*.sqlite
+data/database/
+
+
+__pycache__
