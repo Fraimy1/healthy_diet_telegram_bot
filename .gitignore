@@ -11,6 +11,6 @@ model/model_weights/
 *.log
 *.sqlite
 data/database/
-
+*.ipynb
 
 __pycache__
