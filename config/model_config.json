@@ -1,5 +1,6 @@
 {
     "model_name": "bert_2level_parsed",
+    "weights_path": "model/model_weights",
     "bert_best_weights_path": "model/model_weights/bert_model_weights.h5",
     "binary_best_weights_path": "model/model_weights/binary_model_weights.h5",
     "label_encoder_path": "model/model_weights/label_encoder.pkl",

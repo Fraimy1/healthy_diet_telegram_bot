@@ -1,0 +1,10 @@
+# Links to model weights
+
+LABEL_ENCODER_LINK = ''
+BERT_MODEL_LINK = ''
+BINARY_MODEL_LINK = ''
+
+# Links to data
+
+DYNAMIC_DATASET_LINK = ''
+CLEANED_MICROELEMENTS_TABLE_LINK = ''
