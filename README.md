@@ -1,7 +1,6 @@
-- [README in English](#readme-in-english)
-- [README на русском](#readme-на-русском)
+- [README in English](#diet-analysis-system-for-russian-receipts-with-telegram-bot-integration)
+- [README на русском](#система-анализа-диеты-на-основе-чеков-с-интеграцией-telegram-бота)
 
-# README in English
 # Diet Analysis System for Russian Receipts with Telegram Bot Integration
 
 The system classifies product names from receipts sent via a Telegram bot and builds a user's diet history.
@@ -132,8 +131,7 @@ Here is a breakdown of the project’s directory structure excluding unneccessar
     ├── parser.py<br>
     └── utils.py<br>
 
-# README на русском
-# Система анализа диеты на основе чеков с интеграцией Telegram-бота.
+# Система анализа диеты на основе чеков с интеграцией Telegram-бота
 
 Система классифицирует наименования продуктов из чеков, отправленных через Telegram-бота, и формирует историю питания пользователя.
 
