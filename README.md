@@ -79,19 +79,19 @@ If you have access to this data, you should specify it on step 4 of the installa
 
 ## Usage
 
-1. Start by initializing the necessary components (e.g., database, model_weights):
+1. Run the Telegram bot:
+
+    ```bash
+    python -m bot.telegram_bot
+    ```
+2. (Optional) You can reinitialize the necessary components (e.g., database, model_weights) with your own links to Google drive in `config/repository_config.py`, then running the following command in the console:
+
+   (Make sure that the weights you provide can coexist with the model parameters specified in the `model_configuration.json`)
 
     ```bash
     python -m repository_initialization.data_init
     ```
 
-2. Run the Telegram bot:
-
-    ```bash
-    python -m bot.telegram_bot
-    ```
-    
-3. Optional: If you need to perform additional tasks like testing the model, refer to the relevant scripts in the `model` and `utils` directories.
 
 ## Configuration
 
@@ -105,32 +105,34 @@ Ensure you update these files with your specific environment settings.
 
 ## Directory Structure
 
-Here is a breakdown of the project’s directory structure excluding unneccessary files like `__init__.py`, `__pycache__` etc.<br>
-├── README.md<br>
-├── bot<br>
-│   └── telegram_bot.py - main file for running the bot<br>
-├── config<br>
-│   ├── config.py<br>
-│   ├── .env - is created after running `data_init.py`<br>
-│   ├── model_config.json<br>
-│   └── repository_config.py<br>
-├── data<br>
-│   ├── database - is created after running `data_init.py`<br>
-│   └── database_init.py<br>
-├── instruction_images<br>
-│   ├── (1-9).jpg<br>
-├── model<br>
-│   ├── bert_model.py<br>
-│   ├── model_init.py<br>
-│   └── model_weights - is created after running `data_init.py`<br>
-├── repository_initialization<br>
-│   └── data_init.py - initialization of the project big files<br>
-├── requirements.txt<br>
-└── utils<br>
-    ├── data_processor.py<br>
-    ├── parser.py<br>
-    └── utils.py<br>
+Here is a breakdown of the project’s directory structure excluding unneccessary files like `__init__.py`, `__pycache__` etc.
 
+```
+├── README.md
+├── bot
+│   └── telegram_bot.py - main file for running the bot
+├── config
+│   ├── config.py
+│   ├── .env - is created after running data_init.py
+│   ├── model_config.json
+│   └── repository_config.py
+├── data
+│   ├── database - is created after running data_init.py
+│   └── database_init.py
+├── instruction_images
+│   ├── (1-9).jpg
+├── model
+│   ├── bert_model.py
+│   ├── model_init.py
+│   └── model_weights - is created after running data_init.py
+├── repository_initialization
+│   └── data_init.py - initialization of the project big files
+├── requirements.txt
+└── utils
+    ├── data_processor.py
+    ├── parser.py
+    └── utils.py
+```
 # Система анализа диеты на основе чеков с интеграцией Telegram-бота
 
 Система классифицирует наименования продуктов из чеков, отправленных через Telegram-бота, и формирует историю питания пользователя.
@@ -215,20 +217,19 @@ Here is a breakdown of the project’s directory structure excluding unneccessar
 
 ## Использование
 
-1. Начните с инициализации необходимых компонентов (например, базы данных, весов модели):
-
-    ```bash
-    python -m repository_initialization.data_init
-    ```
-
-2. Запустите Telegram-бота:
+1. Запустите Telegram-бота:
 
     ```bash
     python -m bot.telegram_bot
     ```
 
-3. Опционально: если необходимо выполнить дополнительные задачи, такие как тестирование модели, обратитесь к соответствующим скриптам в папках `model` и `utils`.
+2. (Опционально) Вы можете иницилазировать нужные файлы заново в любомй момент (например, базы данных, весов модели), установив новые ссылки в `config/repository_config.py` и запустив команду снизу:
 
+   (Убедитесь, что модель, веса которой вы указали, может сосуществовать с параметрами, указанными в `model_configuration.json`, либо поменяйте их)
+   
+    ```bash
+    python -m repository_initialization.data_init
+    ```
 ## Конфигурация
 
 Конфигурационные файлы находятся в папке `config/`. Эти файлы управляют поведением проекта:
@@ -241,28 +242,31 @@ Here is a breakdown of the project’s directory structure excluding unneccessar
 
 ## Структура проекта
 
-Вот структура проекта, исключая лишние файлы вроде `__init__.py`, `__pycache__`<br>
-├── README.md<br>
-├── bot<br>
-│   └── telegram_bot.py - основной файл для запуска бота<br>
-├── config<br>
-│   ├── config.py<br>
-│   ├── .env - создается после запуска `data_init.py`<br>
-│   ├── model_config.json<br>
-│   └── repository_config.py<br>
-├── data<br>
-│   ├── database - создается после запуска `data_init.py`<br>
-│   └── database_init.py<br>
-├── instruction_images<br>
-│   ├── (1-9).jpg<br>
-├── model<br>
-│   ├── bert_model.py<br>
-│   ├── model_init.py<br>
-│   └── model_weights - создается после запуска `data_init.py`<br>
-├── repository_initialization<br>
-│   └── data_init.py - инициализация больших файлов проекта<br>
-├── requirements.txt<br>
-└── utils<br>
-    ├── data_processor.py<br>
-    ├── parser.py<br>
-    └── utils.py<br>
+Вот структура проекта, исключая лишние файлы вроде `__init__.py`, `__pycache__`
+
+```
+├── README.md
+├── bot
+│   └── telegram_bot.py - основной файл для запуска бота
+├── config
+│   ├── config.py
+│   ├── .env - создается после запуска data_init.py
+│   ├── model_config.json
+│   └── repository_config.py
+├── data
+│   ├── database - создается после запуска data_init.py
+│   └── database_init.py
+├── instruction_images
+│   ├── (1-9).jpg
+├── model
+│   ├── bert_model.py
+│   ├── model_init.py
+│   └── model_weights - создается после запуска data_init.py
+├── repository_initialization
+│   └── data_init.py - инициализация больших файлов проекта
+├── requirements.txt
+└── utils
+    ├── data_processor.py
+    ├── parser.py
+    └── utils.py
+```
