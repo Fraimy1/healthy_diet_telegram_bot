@@ -6,6 +6,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 INSTRUCTION_IMAGES_PATH = "instruction_images"
 DATABASE_PATH = "data/database"
+DATABASE_FILE_PATH ='data/database.db'
 MODEL_CONFIG_PATH = "config/model_config.json"
 
 WELCOME_MESSAGES = (

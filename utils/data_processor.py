@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from config.config import DATABASE_PATH, ABBREVIATION_MICROELEMENTS_DICT
+from config.config import DATABASE_PATH, DATABASE_FILE_PATH, ABBREVIATION_MICROELEMENTS_DICT
 from utils.parser import Parser
 import os 
 import json
+import sqlite3
 
 parser = Parser()
 
@@ -49,12 +50,12 @@ def parse_json(receipt_data:dict):
 
     return pd.DataFrame(items), receipt_info
  
-def parse_predict(receipt_data, bert_2level_model, le, min_confidence=0.5, ):
+def predict_product_categories(items_data, bert_2level_model, le, min_confidence=0.5):
     """
     Predicts product categories for a receipt using a BERT model.
 
     Args:
-        receipt_data (dict): JSON data from a receipt
+        items_data (dict): JSON items_data from a receipt
         bert_2level_model (BERTTwoLevelModel): A trained BERT model for product category prediction
         le (LabelEncoder): A LabelEncoder for encoding product categories
         min_confidence (float, optional): The minimal confidence for a prediction to be considered correct. Defaults to 0.5.
@@ -62,139 +63,248 @@ def parse_predict(receipt_data, bert_2level_model, le, min_confidence=0.5, ):
     Returns:
         tuple: A tuple containing a pandas DataFrame with the receipt items and their predicted categories, and a dictionary with the receipt information.
     """
-    data, receipt_info = parse_json(receipt_data)
-    product_names = data['name'].tolist()
+    product_names = items_data['name'].tolist()
 
     parsed_data = parser.parse_dataset(
         product_names,
         extract_cost=False,
         extract_hierarchical_number=False,
     )
-    data = data.join(parsed_data)
+    items_data = items_data.join(parsed_data)
 
     product_names = parsed_data['product_name'].tolist()
     predictions, confidences = bert_2level_model.predict(product_names)
     predictions = le.inverse_transform(predictions)
-    data['prediction'] = predictions
+    items_data['prediction'] = predictions
 
 
     confidences = np.array(confidences)
     user_predictions = np.where(confidences >= min_confidence, predictions, 'нераспознанное')
-    data['user_prediction'] = user_predictions
-    data['confidence'] = confidences
+    items_data['user_prediction'] = user_predictions
+    items_data['confidence'] = confidences
 
-    return data, receipt_info
+    return items_data
 
-def save_data_for_dataset(new_data, dynamic_dataset_path):
+def save_data_for_database(new_data, receipt_info, user_id=None):
     """
-    Saves new data to a dynamic dataset, which is a CSV file. It concatenates the new data with the existing data, removes duplicates, and saves the updated data back to the CSV file.
+    Saves the processed receipt data into the SQLite database.
 
     Args:
-        new_data (list of dict): A list of dictionaries, where each dictionary contains information about a product and its category.
-        dynamic_dataset_path (str): The path to the dynamic dataset CSV file.
+        new_data (DataFrame): A pandas DataFrame containing receipt items with predictions.
+        receipt_info (dict): A dictionary containing receipt metadata.
+        user_id (int, optional): The user ID associated with the receipt. Defaults to None.
     """
+    conn = sqlite3.connect(DATABASE_FILE_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    user_data = dict(cursor.execute("SELECT * FROM main_database WHERE user_id = ?", (user_id,)).fetchone())
+
+    if user_data is None:
+        print(f"User with ID {user_id} not found in the database.")
+        return
+
     try:
-        existing_data = pd.read_csv(dynamic_dataset_path, sep='|') 
-    except pd.errors.EmptyDataError:
-        existing_data = pd.DataFrame()
-    
-    new_data = pd.DataFrame(new_data)
-    new_data.drop(columns=['user_prediction', 'original_entry', 'sum_rub', 'quantity'], inplace=True)
-    
-    updated_data = pd.concat([existing_data, new_data], ignore_index=True)
-    updated_data.drop_duplicates(subset=['name'], inplace=True)
-    
-    updated_data.to_csv(dynamic_dataset_path, sep='|', index=False)
+        # Insert the receipt into the user_purchases table
+        try:
+            cursor.execute("""
+                INSERT INTO user_purchases (receipt_id, user_id, purchase_datetime, total_sum, in_history)
+                VALUES (:receipt_id, :user_id, :purchase_datetime, :total_sum, :in_history)
+            """, {
+                'receipt_id': receipt_info['receipt_id'],
+                'user_id': user_id,
+                'purchase_datetime': receipt_info['purchase_datetime'],
+                'total_sum': receipt_info['total_sum'],
+                'in_history': user_data.get('add_to_history', True)
+            })
+        except sqlite3.IntegrityError as e:
+            print(f"Skipping duplicate receipt {receipt_info['receipt_id']} due to: {e}")
+            return
+
+        # Insert receipt items into the receipt_items table
+        for _, row in new_data.iterrows():
+            try:
+                cursor.execute("""
+                    INSERT INTO receipt_items (
+                        receipt_id, user_id, name, quantity, sum_rub, original_entry, percentage, amount, 
+                        product_name, portion, prediction, user_prediction, confidence, in_history
+                    ) VALUES (
+                        :receipt_id, :user_id, :name, :quantity, :sum_rub, :original_entry, :percentage, :amount, 
+                        :product_name, :portion, :prediction, :user_prediction, :confidence, :in_history
+                    )
+                """, {
+                    'receipt_id': receipt_info['receipt_id'],
+                    'user_id': user_id,
+                    'name': row.get('name'),
+                    'quantity': row.get('quantity', 1),
+                    'sum_rub': row.get('sum_rub', 0),
+                    'original_entry': row.get('original_entry', None),
+                    'percentage': row.get('percentage', None),
+                    'amount': row.get('amount', None),
+                    'product_name': row.get('product_name', None),
+                    'portion': row.get('portion', None),
+                    'prediction': row.get('prediction', None),
+                    'user_prediction': row.get('user_prediction', None),
+                    'confidence': row.get('confidence', 0.0),
+                    'in_history': user_data.get('add_to_history', True)
+                })
+            except sqlite3.IntegrityError as e:
+                print(f"Skipping duplicate item {row['name']} for receipt {receipt_info['receipt_id']} due to: {e}")
+
+        conn.commit()
+        print(f"Receipt {receipt_info['receipt_id']} saved successfully.")
+    except sqlite3.Error as e:
+        print(f"An error occurred while saving receipt {receipt_info['receipt_id']}: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 # ==== Sort receipts =====
 
 def get_sorted_user_receipts(user_id, database_path):
     """
-    Sorts a user's receipts by their purchase date in descending order.
+    Sorts a user's receipts by their purchase date in descending order from the SQLite database.
 
     Args:
         user_id (int): The user ID to get the receipts for.
-        database_path (str): The path to the database.
+        database_path (str): The path to the SQLite database file.
 
     Returns:
-        list: A sorted list of the user's receipts.
+        list: A sorted list of the user's receipts, each represented as a dictionary.
     """
-    user_json_path = os.path.join(database_path, f"user_{user_id}", "user_profile.json")
-    with open(user_json_path, 'r') as f:
-        user_data = json.load(f)
+    conn = sqlite3.connect(database_path)
+    # Configure to return rows as sqlite3.Row objects, which can be easily converted to dict
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
 
-    receipts = user_data.get('user_purchases', [])
-    sorted_receipts = sorted(receipts, key=lambda x: datetime.strptime(x['purchase_datetime'], '%Y-%m-%d_%H:%M:%S'), reverse=True)
-    return sorted_receipts
+    # Fetch receipts for the user, ordered by purchase_datetime descending
+    cursor.execute("""
+        SELECT receipt_id, user_id, purchase_datetime, total_sum, in_history
+        FROM user_purchases
+        WHERE user_id = ?
+        ORDER BY purchase_datetime DESC
+    """, (user_id,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Convert sqlite3.Row objects to dictionaries
+    receipts = [dict(row) for row in rows]
+
+    return receipts
+
 
 
 # ==== Categories data processing =====
 
 def count_product_amounts(user_id):
     """
-    Counts the total amount of each product in a user's purchases.
+    Counts the total amount of each product in a user's purchases from the SQLite database.
 
     Args:
         user_id (int): The user ID to count the products for.
 
     Returns:
-        tuple: A tuple containing two dictionaries. The first dictionary has the product names as keys and their total amounts as values.
-        The second dictionary has the product names as keys and their sources (i.e. the products that were detected as containing the product) as values.
+        tuple: A tuple containing two dictionaries. 
+               The first dictionary has product categories (user_prediction) as keys and a dict with 
+               'total_amount' and 'sources' as values.
+               The second dictionary has product categories that couldn't be measured 
+               ('undetected_categories') with 'n/a' amounts and their 'sources'.
     """
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Retrieve default_amounts for this user
+    cursor.execute("""
+        SELECT item_name, item_amount_grams
+        FROM default_amounts
+        WHERE user_id = ?
+    """, (user_id,))
+    default_amounts_data = cursor.fetchall()
+    default_amounts = {row['item_name']: row['item_amount_grams'] for row in default_amounts_data}
+
+    # Retrieve all items for this user by joining user_purchases and receipt_items
+    cursor.execute("""
+        SELECT 
+            ri.name, 
+            ri.quantity, 
+            ri.amount, 
+            ri.user_prediction, 
+            up.receipt_id
+        FROM user_purchases up
+        JOIN receipt_items ri ON up.receipt_id = ri.receipt_id
+        WHERE up.user_id = ?
+    """, (user_id,))
+    items_data = cursor.fetchall()
+    conn.close()
+
     product_counts = {}
     undetected_categories = {}
 
-    user_json_path = os.path.join(DATABASE_PATH, f"user_{user_id}", "user_profile.json")
-    with open(user_json_path, 'r') as f:
-        user_data = json.load(f)
+    for row in items_data:
+        product_name = row['name']
+        user_prediction = (row['user_prediction'] or '').strip()  # Ensure a string
+        quantity = row['quantity'] if row['quantity'] is not None else 1
+        amount_str = row['amount']  # May be None
+        # If the user prediction is 'несъедобное', skip this item
+        if user_prediction == 'несъедобное':
+            continue
 
-    default_amounts = user_data.get('default_amounts', {})
-    receipts = user_data.get('user_purchases', [])
-    
-    for purchase in receipts:
-        for item in purchase['items']:
-            product_name = item.get('name')
-            user_prediction = item.get('user_prediction', '').strip()
+        # Determine the amount in grams
+        amount_grams = None
+        default_amount_grams = default_amounts.get(user_prediction, None)
 
-            # Skip items with 'несъедобное' prediction
-            if user_prediction == 'несъедобное':
-                continue
-            
-            quantity = item.get('quantity', 1)
-            if item.get('amount', 'n/a') != 'n/a':
-                amount, unit = item['amount'].split()
-            else:
-                unit = 'n/a'
-                
-            default_amount_grams = default_amounts.get(user_prediction, None)
-            
-            if default_amount_grams:
-                amount_grams = default_amount_grams * quantity
-            elif item.get('amount', 'n/a') != 'n/a' and unit != 'шт':
-                amount_grams = parser.convert_amount_units_to_grams(item['amount']) * quantity
-            else:
-                if user_prediction not in undetected_categories:
-                    undetected_categories[user_prediction] = {'total_amount': 'n/a', 'sources': []}
-                undetected_categories[user_prediction]['sources'].append(product_name)
-                continue
-            
-            # Add to product_counts
-            if user_prediction not in product_counts:
-                product_counts[user_prediction] = {'total_amount': 0, 'sources': []}
-            
-            product_counts[user_prediction]['total_amount'] += amount_grams
-            product_counts[user_prediction]['sources'].append((product_name, amount_grams))
+        if default_amount_grams is not None:
+            # Use default amount
+            amount_grams = default_amount_grams * quantity
+        else:
+            # Try to parse amount if available
+            if amount_str is not None:
+                # amount_str might look like "1 кг", "230 мл", etc.
+                # Split to get unit and value
+                parts = amount_str.split()
+                if len(parts) == 2:
+                    value_str, unit = parts
+                    try:
+                        # Convert to grams if possible
+                        converted = parser.convert_amount_units_to_grams(amount_str)
+                        if converted is not None:
+                            amount_grams = converted * quantity
+                        else:
+                            # Can't convert
+                            pass
+                    except Exception:
+                        pass
+                else:
+                    # Unexpected amount format
+                    pass
 
-    # Sort sources for each product
+        if amount_grams is None:
+            # Could not determine amount_grams
+            if user_prediction not in undetected_categories:
+                undetected_categories[user_prediction] = {'total_amount': 'n/a', 'sources': []}
+            undetected_categories[user_prediction]['sources'].append(product_name)
+            continue
+
+        # Add to product_counts
+        if user_prediction not in product_counts:
+            product_counts[user_prediction] = {'total_amount': 0, 'sources': []}
+
+        product_counts[user_prediction]['total_amount'] += amount_grams
+        product_counts[user_prediction]['sources'].append((product_name, amount_grams))
+
+    # Sort sources for each product by amount descending
     for product in product_counts:
         product_counts[product]['sources'].sort(key=lambda x: x[1], reverse=True)
 
-    # Sort product_counts by total_amount
+    # Sort product_counts by total_amount descending
     sorted_products = sorted(product_counts.items(), key=lambda x: x[1]['total_amount'], reverse=True)
     product_counts = dict(sorted_products)
 
     return product_counts, undetected_categories
+
 
 
 # ==== Microelements data processing =====
@@ -250,34 +360,39 @@ def get_microelements_for_product(product_name, amount, microelements_table):
 
 def get_microelements_data(user_id, microelements_table):
     """
-    Get the microelements data for a given user ID.
+    Get the microelements data for a given user ID from the database-driven product counts.
 
     Args:
         user_id (int): The ID of the user.
-        microelements_table (dict): The nested dictionary of product_name -> microelement_name -> amount.
+        microelements_table (dict): The nested dictionary of product_name -> microelement_name -> amount 
+                                    returned by restructure_microelements().
 
     Returns:
         dict: A dictionary with the microelement names as keys and dictionaries with total_amount and sources as values.
     """
-    
-    microelements_data = {}
+
+    # Now count_product_amounts(user_id) uses the database instead of JSON.
     product_counts, _ = count_product_amounts(user_id)
     
+    microelements_data = {}
+    
     for product, data in product_counts.items():
+        # product is user_prediction category from count_product_amounts
         if product in microelements_table:
             total_amount = data['total_amount']
+            # get_microelements_for_product still works the same, using the microelements_table dictionary
             product_microelements = get_microelements_for_product(product, total_amount, microelements_table)
             
             for element, value in product_microelements.items():
                 if element not in microelements_data:
                     microelements_data[element] = {'total_amount': 0, 'sources': []}
                 
-                # Only add to total and sources if the value is greater than zero
+                # Only add if the value is greater than zero
                 if value > 0:
                     microelements_data[element]['total_amount'] += value
                     microelements_data[element]['sources'].append((product, value))
 
-    # Remove elements with total_amount equal to 0
+    # Remove elements with total_amount <= 0
     microelements_data = {k: v for k, v in microelements_data.items() if v['total_amount'] > 0}
 
     # Sort sources for each microelement
@@ -294,7 +409,7 @@ def get_microelements_data(user_id, microelements_table):
             final_microelements[element] = data
             break
 
-    # Add the rest of the elements
+    # Add the rest of the elements after "Энергетическая ценность"
     for element, data in sorted_microelements:
         if element != "Энергетическая ценность":
             final_microelements[element] = data

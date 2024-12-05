@@ -81,7 +81,7 @@ from aiogram.types import (
 )
 from model.model_init import initialize_model
 from data.database_init import initialize_database
-from utils.data_processor import parse_predict, save_data_for_dataset, get_sorted_user_receipts, count_product_amounts, restructure_microelements, get_microelements_data
+from utils.data_processor import parse_predict, save_data_for_database, get_sorted_user_receipts, count_product_amounts, restructure_microelements, get_microelements_data
 from utils.utils import save_user_data, create_user_file, sanitize_username, create_back_button
 from config.config import (
     DATABASE_PATH, 
@@ -605,7 +605,7 @@ async def process_receipt(receipt_data, user_id, user_folder):
             data_is_unique = True
             if add_to_history_bool:
                 save_user_data(data, receipt_info, user_id)
-            save_data_for_dataset(data, os.path.join(DATABASE_PATH, 'dynamic_dataset.csv'))
+            save_data_for_database(data, os.path.join(DATABASE_PATH, 'dynamic_dataset.csv'))
             
             with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
                 user_data = json.load(f)
