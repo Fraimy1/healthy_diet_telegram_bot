@@ -8,7 +8,7 @@ InlineKeyboardMarkup,
 InlineKeyboardButton
 )
 
-def save_user_data(new_data, receipt_info, user_id):
+def save_user_data(new_data, receipt_info, user_id, add_to_history=None):
     """Save a user's purchase data to their profile file."""
     path_to_json = os.path.join(DATABASE_PATH, f'user_{user_id}', f'user_profile.json')
     with open(path_to_json, 'r') as file:
@@ -16,7 +16,9 @@ def save_user_data(new_data, receipt_info, user_id):
         
     receipt_items = new_data.fillna('n/a').to_dict(orient='records')
     receipt_info['items'] = receipt_items
-    
+    if add_to_history is not None:
+        receipt_info['in_history'] = add_to_history
+
     user_data['user_purchases'].append(receipt_info)
     
     with open(path_to_json, 'w', encoding='utf-8') as file:
