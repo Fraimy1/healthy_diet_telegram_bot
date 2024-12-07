@@ -17,3 +17,4 @@ pyahocorasick==2.1.0
 pyspellchecker==0.8.1
 aiogram==3.14.0
 gdown==5.2.0
+pytest

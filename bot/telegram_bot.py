@@ -81,8 +81,9 @@ from aiogram.types import (
 )
 from model.model_init import initialize_model
 from data.database_init import initialize_database
-from utils.data_processor import parse_predict, save_data_for_database, get_sorted_user_receipts, count_product_amounts, restructure_microelements, get_microelements_data
-from utils.utils import save_user_data, create_user_file, sanitize_username, create_back_button
+from utils.data_processor import predict_product_categories, save_data_for_database, get_sorted_user_receipts, count_product_amounts, restructure_microelements, get_microelements_data, parse_json
+from utils.utils import create_user_profile, sanitize_username, create_back_button, update_user_contributions
+from utils.db_utils import db_connection
 from config.config import (
     DATABASE_PATH, 
     INSTRUCTION_IMAGES_PATH, 
@@ -165,7 +166,6 @@ async def show_instruction_step(user_id, text, image_path=None, parse_mode='Mark
         # Ensure cleanup
         waiting_users.pop(user_id, None)
 
-
 @dp.callback_query(lambda c: c.data and c.data.startswith("next_"))
 async def handle_next_button(callback_query: CallbackQuery):
     """
@@ -188,7 +188,6 @@ async def handle_next_button(callback_query: CallbackQuery):
     if future and not future.done():
         future.set_result(True)
 
-
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message, user_id=None):
     """
@@ -200,14 +199,7 @@ async def cmd_start(message: Message, user_id=None):
     """
     user_id = user_id if user_id else message.from_user.id 
 
-    # Creating user profile if it doesn't exist already
-    username = sanitize_username(message.from_user.username) if message.from_user.username else 'nameless'
-
-    user_folder = os.path.join(DATABASE_PATH, f'user_{user_id}')
-    os.makedirs(user_folder, exist_ok=True)
-    
-    if 'user_profile.json' not in os.listdir(user_folder):
-        create_user_file(user_id, username)
+    create_user_profile(user_id, message.from_user.username)
     
     # Check if the user is already running /instruction or /help
     if user_id in active_users_instruction:
@@ -384,7 +376,8 @@ async def handle_set_confidence(message: Message, user_id=None):
         user_id (int, optional): The user ID of the user that sent the message. Defaults to None.
     """
     user_id = user_id if user_id else message.from_user.id 
-    confidence_value = int(message.text)
+    display_confidence_value = float(message.text)
+    confidence_value = float(message.text) / 100
 
     # Delete the previous messages
     message_ids = set_confidence_markup_queue.get(user_id, {})
@@ -394,17 +387,13 @@ async def handle_set_confidence(message: Message, user_id=None):
     # Remove the stored message IDs
     set_confidence_markup_queue.pop(user_id, None)
 
-    user_profile_path = os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json')
-    with open(user_profile_path, 'r') as f:
-        user_data = json.load(f)
-
-    user_data['minimal_confidence_for_prediction'] = confidence_value
-    
-    with open(user_profile_path, 'w') as f:
-        json.dump(user_data, f, ensure_ascii=False, indent=4)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE main_database SET minimal_confidence_for_prediction = ? WHERE user_id = ?", (confidence_value, user_id))
+        conn.commit()
 
     back_button = create_back_button(text="Назад", callback_data="main_menu")
-    await message.answer(f"Минимальная уверенность модели установлена на {confidence_value}%.", reply_markup=back_button)
+    await message.answer(f"Минимальная уверенность модели установлена на {display_confidence_value}%.", reply_markup=back_button)
 
 @dp.startup()
 async def set_menu_button(bot: Bot):
@@ -451,20 +440,20 @@ async def add_to_history(message:Message, user_id):
         user_id (int, optional): The user ID of the user that sent the message. Defaults to None.
     """
     user_id = user_id if user_id else message.from_user.id 
-    with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
-        user_data = json.load(f)
-    
-    user_data['add_to_history'] = not user_data.get('add_to_history', False)
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT add_to_history FROM main_database WHERE user_id = ?", (user_id,))
+        add_to_history_value = not cursor.fetchone()[0]
+        cursor.execute("UPDATE main_database SET add_to_history = ? WHERE user_id = ?", (add_to_history_value, user_id))
+        conn.commit()
 
     back_button = create_back_button(text="Главное меню", callback_data="main_menu")
     
-    if user_data['add_to_history']:
+    if add_to_history_value:
         await message.answer("✅ Добавление чеков в вашу историю включено.", reply_markup=back_button)
     else:
         await message.answer("❌ Добавление чеков в вашу историю отключено.", reply_markup=back_button)
-
-    with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'w') as f:
-        json.dump(user_data, f, ensure_ascii=False, indent=4)
 
 @dp.message(F.text.startswith('/return_excel_document'))    
 async def set_return_excel_document(message:Message, user_id=None):
@@ -479,20 +468,20 @@ async def set_return_excel_document(message:Message, user_id=None):
         user_id (int, optional): The user ID of the user that sent the message. Defaults to None.
     """
     user_id = user_id if user_id else message.from_user.id 
-    with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
-        user_data = json.load(f)
-    
-    user_data['return_excel_document'] = not user_data.get('return_excel_document', False)
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT return_excel_document FROM main_database WHERE user_id = ?", (user_id,))
+        return_excel_document_value = not cursor.fetchone()[0]
+        cursor.execute("UPDATE main_database SET return_excel_document = ? WHERE user_id = ?", (return_excel_document_value, user_id))
+        conn.commit()
 
     back_button = create_back_button(text="Главное меню", callback_data="main_menu")
     
-    if user_data['return_excel_document']:
+    if return_excel_document_value:
         await message.answer("✅ Отправление Excel документов с предсказаниями на каждый чек включено.", reply_markup=back_button)
     else:
         await message.answer("❌ Отправление Excel документов с предсказаниями на каждый чек отключено.", reply_markup=back_button)
-
-    with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'w') as f:
-        json.dump(user_data, f, ensure_ascii=False, indent=4)
 
 # In-Memory Storage for pending receipt IDs
 pending_receipts = {}
@@ -567,11 +556,11 @@ async def send_excel_document(data_recieved, receipt_info, user_id):
             text=f"Извините, произошла ошибка при создании Excel-файла: {str(e)}"
         )
 
-async def process_receipt(receipt_data, user_id, user_folder):
+async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
     """
     Processes a receipt and updates the database accordingly.
 
-    The function first tries to extract relevant information from the receipt data using the `parse_predict` function. 
+    The function first tries to extract relevant information from the receipt data using the `predict_product_categories` function. 
     It then saves the receipt data to a file and checks if the receipt is unique. 
     If the receipt is unique, it adds the receipt data to the user's history and the dataset. 
     If the receipt is not unique, it asks the user whether they want to add the receipt to their history or not.
@@ -585,84 +574,49 @@ async def process_receipt(receipt_data, user_id, user_folder):
         None
     """
     try:
-        with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
-            user_data = json.load(f)
-        min_confidence = user_data.get('minimal_confidence_for_prediction', 50) / 100
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT minimal_confidence_for_prediction, add_to_history, return_excel_document FROM main_database WHERE user_id = ?", (user_id,))
+            user_data = cursor.fetchone()
+            user_data = dict(user_data) if user_data else {} 
+            unique_receipt_ids = cursor.execute("SELECT DISTINCT receipt_id FROM user_purchases WHERE user_id = ?", (user_id,)).fetchall()
+        
+        unique_receipt_ids = {row[0] for row in unique_receipt_ids}
+        min_confidence = user_data.get('minimal_confidence_for_prediction', 0.5)
         add_to_history_bool = user_data.get('add_to_history', False)        
         return_excel_document = user_data.get('return_excel_document', False)
 
-        data, receipt_info = parse_predict(receipt_data, bert_2level_model, le, min_confidence)
+        items_data, receipt_info = parse_json(receipt_data)
         receipt_id = receipt_info.get('receipt_id')
-        # Save the receipt data to a file
+        display_date = datetime.strptime(receipt_info.get('purchase_datetime'), '%Y-%m-%d_%H:%M:%S').strftime('%d.%m.%Y %H:%M')
+        data = predict_product_categories(items_data, bert_2level_model, le, min_confidence)
+        
+        # Deprecated
         receipt_file_path = os.path.join(user_folder, f'file_{receipt_id}.json')
         with open(receipt_file_path, 'w') as f:
             json.dump(receipt_data, f, ensure_ascii=False, indent=4)
-        
+        # ===
+
         if return_excel_document:
                 await send_excel_document(data, receipt_info, user_id)
         
         if receipt_id not in unique_receipt_ids:
-            data_is_unique = True
-            if add_to_history_bool:
-                save_user_data(data, receipt_info, user_id)
-            save_data_for_database(data, os.path.join(DATABASE_PATH, 'dynamic_dataset.csv'))
+            save_data_for_database(data, receipt_info, user_id)
             
-            with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
-                user_data = json.load(f)
-
-            if data_is_unique:
-                user_data['products_added'] += len(data)
-                user_data['original_receipts_added'] += 1
-            unique_receipt_ids.add(receipt_id)
-            database_info['unique_receipt_ids'] = list(unique_receipt_ids)
-            database_info_path = os.path.join(DATABASE_PATH, 'database_info.json')  
-
-            with open(database_info_path, 'w') as f:
-                json.dump(database_info, f, ensure_ascii=False, indent=4)
-
-            with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'w') as f:
-                json.dump(user_data, f, ensure_ascii=False, indent=4)
-        
-            purchase_date = datetime.strptime(receipt_info['purchase_datetime'], '%Y-%m-%d_%H:%M:%S').strftime('%d.%m.%Y')
+            purchase_date = datetime.strptime(receipt_info['purchase_datetime'], '%Y-%m-%d_%H:%M:%S').strftime('%d.%m.%Y %H:%M')
             if add_to_history_bool:
-                await bot.send_message(user_id, f"✅ Чек от {purchase_date} добавлен в датасет и вашу историю")
+                await bot.send_message(user_id, f"✅ {idx_info} Чек от {purchase_date} добавлен в датасет и вашу историю")
             else:
-                await bot.send_message(user_id, f"➡️ Чек от {purchase_date} был добавлен в общий датасет, но не был добавлен в вашу историю исходя из ваших настроек")
-            
+                await bot.send_message(user_id, f"➡️ {idx_info} Чек от {purchase_date} был добавлен в общий датасет, но не был добавлен в вашу историю исходя из ваших настроек")  
         else:
-            # Handle duplicate receipt
-            if add_to_history_bool:                
-                temp_id = str(uuid.uuid4())
-                if user_id not in pending_receipts:
-                    pending_receipts[user_id] = {}
-                pending_receipts[user_id][temp_id] = receipt_id
+            await bot.send_message(
+                user_id,
+                text = (f"⚠️ {idx_info} Вы уже добавляли этот чек.\n"
+                        f'Дата покупки: {display_date}\n'
+                        f'ID чека: {receipt_id}\n'
+                        "Он будет пропущен")
+                )
 
-                # Create the keyboard
-                keyboard = InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="Добавить в историю",
-                                callback_data=f"add_to_history_{temp_id}"
-                            )
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                text="Пропустить",
-                                callback_data=f"dont_add_to_history_{temp_id}"
-                            )
-                        ]
-                    ]
-                )
-                await bot.send_message(
-                    user_id,
-                    text = f"⚠️ Информация о чеке с ID {receipt_id} уже есть в базе данных\n"
-                    "Что с ним сделать?\n"
-                    "(Если чек был добавлен повторно по ошибке, советуем пропустить его)",
-                    reply_markup=keyboard
-                )
-            else:
-                await bot.send_message(user_id, f"➡️ Информация о чеке с ID {receipt_id} уже есть в базе данных, он был пропущен.")
     except Exception as e:
         await bot.send_message(user_id, text = f"Произошла ошибка при обработке чека с ID {receipt_id}")
         print(f"Error processing receipt {receipt_id} for user {user_id}: {e}")
@@ -682,109 +636,37 @@ async def handle_json_upload(message: Message):
     """
     file_name = f'file_{datetime.now().strftime("%d_%m_%Y_%H_%M_%S")}.json'
     user_id = message.from_user.id
-    username = sanitize_username(message.from_user.username) if message.from_user.username else 'nameless'
     
     user_folder = os.path.join(DATABASE_PATH, f'user_{user_id}')
     os.makedirs(user_folder, exist_ok=True)
     file_path = os.path.join(user_folder, file_name)
     
-    if 'user_profile.json' not in os.listdir(user_folder):
-        create_user_file(user_id, username)
-
     try:
         # Download and save the file
         await bot.download(message.document, destination=file_path)
         with open(file_path, 'r') as f:
             data_received = json.load(f)
-
-        if isinstance(data_received, list):
-            for receipt_data in data_received:
-                await process_receipt(receipt_data, user_id, user_folder)
-        else:
-            await process_receipt(data_received, user_id, user_folder)
         
-    except Exception as e:
-        await message.answer("Произошла ошибка при обработке файла. Попробуйте еще раз")
-        print(f"Error processing file for user {user_id}: {e}")
+        idx_info = ''
+        if isinstance(data_received, list):
+            for i, receipt_data in enumerate(data_received, start=1):
+                idx_info = f'{i}/{len(data_received)}'
+                await process_receipt(receipt_data, user_id, user_folder, idx_info)
+        else:
+            await process_receipt(data_received, user_id, user_folder, idx_info)
+        
+    # except Exception as e:
+    #     await message.answer("Произошла ошибка при обработке файла. Попробуйте еще раз")
+    #     print(f"Error processing file for user {user_id}: {e}")
 
     finally:
         os.remove(file_path)
         # Show the main menu after processing the upload
         back_button = create_back_button(text="Главное меню", callback_data="main_menu")
         await message.answer("Все файлы были обработаны", reply_markup=back_button)
-
-@dp.callback_query(lambda c: c.data and c.data.startswith("add_to_history_"))
-async def handle_add_to_history(callback_query: CallbackQuery):
-    """
-    Handle the callback query to add a receipt to the user's history.
-
-    This function is called when a user presses the "Добавить в историю" button in the message with
-    the receipt information. It deletes the message, adds the receipt to the user's history and saves
-    the new data to the user's JSON file. Then it updates the `database_info.json` file with the new
-    unique receipt IDs. Finally, it sends a message to the user confirming that the receipt was added
-    to their history.
-
-    :param callback_query: The callback query containing the user ID and the temporary ID of the receipt
-    """
-    user_id = callback_query.from_user.id
-    temp_id = callback_query.data[len("add_to_history_"):]
-    await callback_query.answer()
-    await callback_query.message.edit_reply_markup(reply_markup=None)
-    await bot.delete_message(chat_id=user_id, message_id=callback_query.message.message_id)
-
-    receipt_id = pending_receipts.get(user_id, {}).get(temp_id)
-
-    path_to_json = os.path.join(DATABASE_PATH, f'user_{user_id}', f'file_{receipt_id}.json')
-    with open(path_to_json, 'r') as f:
-        receipt_data = json.load(f)
-    with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
-            user_data = json.load(f)
-    min_confidence = user_data.get('minimal_confidence_for_prediction', 50) / 100
-
-    new_data, receipt_info = parse_predict(receipt_data, bert_2level_model, le, min_confidence)
-    save_user_data(new_data, receipt_info, user_id)
-    
-    unique_receipt_ids.add(receipt_id)
-    database_info['unique_receipt_ids'] = list(unique_receipt_ids)
-    database_info_path = os.path.join(DATABASE_PATH, 'database_info.json')
-    
-    with open(database_info_path, 'w') as f:
-        json.dump(database_info, f, ensure_ascii=False, indent=4)
-
-    purchase_date = datetime.strptime(receipt_info['purchase_datetime'], '%Y-%m-%d_%H:%M:%S').strftime('%d.%m.%Y')
-    await callback_query.message.answer(f"✅ Чек от {purchase_date} добавлен в вашу историю")
-    del pending_receipts[user_id][temp_id]
-    if not pending_receipts[user_id]:
-        del pending_receipts[user_id]
-
-
-
-@dp.callback_query(lambda c: c.data and c.data.startswith("dont_add_to_history_"))
-async def handle_dont_add_to_history(callback_query: CallbackQuery):
-    """
-    Handles the callback query with the "dont_add_to_history_" prefix.
-
-    It deletes the temporary ID from the pending receipts dictionary and removes the whole user
-    entry if there are no more temporary IDs left. It then sends a message to the user confirming
-    that the receipt was skipped.
-
-    :param callback_query: The callback query containing the user ID and the temporary ID of the receipt
-    """
-    user_id = callback_query.from_user.id
-    temp_id = callback_query.data[len("dont_add_to_history_"):]
-    await callback_query.answer()
-    await callback_query.message.edit_reply_markup(reply_markup=None)
-    await bot.delete_message(chat_id=user_id, message_id=callback_query.message.message_id)
-
-    receipt_id = pending_receipts.get(user_id, {}).get(temp_id)
-    if receipt_id:
-        del pending_receipts[user_id][temp_id]
-        if not pending_receipts[user_id]:
-            del pending_receipts[user_id]
-        await callback_query.message.answer(f"➡️ Чек c ID {receipt_id} был успешно пропущен.")
-    else:
-        await callback_query.message.answer("Не удалось найти информацию о чеке")
-
+        # Updating user's contribution to dataset
+        with db_connection() as conn:
+            update_user_contributions(user_id, conn)
 
 @dp.message(F.text.startswith('/help'))
 async def help_command(message: Message):
@@ -818,10 +700,13 @@ async def show_main_menu(message: Message, user_id=None):
         await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     except:
         pass
-    with open(os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json'), 'r') as f:
-        user_data = json.load(f)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT minimal_confidence_for_prediction, add_to_history, return_excel_document FROM main_database WHERE user_id = ?", (user_id,))
+        user_data = cursor.fetchone()
+        user_data = dict(user_data) if user_data else {}
     
-    min_confidence = user_data.get('minimal_confidence_for_prediction', 50)
+    min_confidence = int(user_data.get('minimal_confidence_for_prediction', 0.5) * 100)
     add_to_history_emoji = '✅' if user_data.get('add_to_history', False) else '❌'
     return_excel_document = '✅' if user_data.get('return_excel_document', False) else '❌'
     keyboard = InlineKeyboardMarkup(
@@ -834,10 +719,10 @@ async def show_main_menu(message: Message, user_id=None):
                 InlineKeyboardButton(text=f"⚙️ Изменить уверенность - {min_confidence}%", callback_data="menu_confidence"),
             ],
             [
-                InlineKeyboardButton(text=f"📝 Добавлять в историю - {add_to_history_emoji}", callback_data="menu_add_to_history"),
+                InlineKeyboardButton(text=f"📝 Добавлять в историю {add_to_history_emoji}", callback_data="menu_add_to_history"),
             ],
             [
-                InlineKeyboardButton(text=f" 📊 Получать Excel документ - {return_excel_document}", callback_data="menu_return_excel_document"),
+                InlineKeyboardButton(text=f" 📊 Получать Excel документ {return_excel_document}", callback_data="menu_return_excel_document"),
             ],
             [            
                 InlineKeyboardButton(text="📜 История покупок", callback_data="menu_history"),
@@ -884,8 +769,6 @@ async def handle_menu_callbacks(callback_query: CallbackQuery):
         await add_to_history(callback_query.message, user_id)
     elif data == "menu_return_excel_document":
         await set_return_excel_document(callback_query.message, user_id)
-    else:
-        await bot.send_message(callback_query.from_user.id, "Неизвестная команда")
 
 # ======= History view =======
 
@@ -956,46 +839,57 @@ async def handle_back_to_history(callback_query: CallbackQuery):
 
 @dp.callback_query(lambda c: c.data and c.data == "history_user_profile")
 async def handle_user_profile(callback_query: CallbackQuery):
-    """
-    Handles the callback query with the "history_user_profile" data.
-
-    Acknowledges the callback to prevent loading icons,
-    removes the menu message and options,
-    and then shows the user's profile information:
-    total number of receipts, total spent money, number of unique receipts added,
-    number of products added, minimal prediction confidence,
-    and registration date.
-
-    :param callback_query: The callback query containing the user ID
-    """
-    await callback_query.answer()  # Acknowledge the callback to prevent loading icons
+    await callback_query.answer()  
     await bot.delete_message(chat_id=callback_query.message.chat.id, message_id=callback_query.message.message_id)
     user_id = callback_query.from_user.id
-    
-    path_to_json = os.path.join(DATABASE_PATH, f'user_{user_id}', 'user_profile.json')
-    with open(path_to_json, 'r') as f:
-        user_data = json.load(f)
-    
-    total_sum = 0
-    total_receipts = 0 
-    if user_data.get('user_purchases', None):
-        for receipt in user_data['user_purchases']:
-            total_receipts += 1
-            receipt_sum = receipt.get('total_sum', 0)
-            total_sum += receipt_sum
-    registration_date = user_data.get('registration_date', 'n/a')
-    if registration_date != 'n/a':
-        registration_date = datetime.strptime(registration_date, '%d-%m-%Y_%H:%M:%S').strftime('%d.%m.%Y %H:%M')
+
+    with db_connection() as conn:        
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT user_id, user_name, registration_date, add_to_history, original_receipts_added, products_added, minimal_confidence_for_prediction
+            FROM main_database
+            WHERE user_id = ?
+        """, (user_id,))
+        user_data = cursor.fetchone()
+        user_data = dict(user_data) if user_data else {}
+
+        cursor.execute("""
+            SELECT COUNT(DISTINCT receipt_id) 
+            FROM user_purchases
+            WHERE user_id = ?
+        """, (user_id,))
+        receipts_count = cursor.fetchone()['COUNT(DISTINCT receipt_id)']
+
+        cursor.execute("""
+            SELECT COUNT(DISTINCT receipt_id) 
+            FROM user_purchases
+            WHERE user_id = ? AND in_history = 1
+        """, (user_id,))
+        receipts_count_in_history = cursor.fetchone()['COUNT(DISTINCT receipt_id)']
+
+        cursor.execute("""
+            SELECT SUM(total_sum) 
+            FROM user_purchases
+            WHERE user_id = ? AND in_history = 1
+        """, (user_id,))
+        total_sum = cursor.fetchone()['SUM(total_sum)'] or 0
+
+        # products_added is now properly stored in the main_database after the update
+        # No need to recalculate it again, just use user_data['products_added']
+
+    registration_date = user_data['registration_date']
+
     statistics = (
         f"📊 Общая статистика:\n\n"
         
-        f"📝 Всего чеков в вашей истории: {total_receipts}\n"
+        f"📝 Всего чеков добавлено: {receipts_count}\n"
         f"📈 Уникальных чеков добавлено: {user_data.get('original_receipts_added', 0)}\n"
+        f"📈 Чеков в истории: {receipts_count_in_history}\n"
         f"🍔 Продуктов добавлено: {user_data.get('products_added', 0)}\n"
         f"💸 Всего денег потрачено: {int(total_sum)}₽\n\n"
 
         f"🕰️ Дата регистрации: {registration_date}\n"
-        f"💯 Минимальная уверенность модели: {user_data.get('minimal_confidence_for_prediction', 50)}%"
+        f"💯 Минимальная уверенность модели: {int(user_data.get('minimal_confidence_for_prediction', 0.5)*100)}%"
     )
     
     back_button = create_back_button(text="К истории покупок", callback_data="back_to_history_delete")
@@ -1024,9 +918,9 @@ async def display_receipts(user_id, message, receipts, page=0):
 
     for i in range(start_index, end_index):
         receipt = receipts[i]
-        date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d_%H:%M:%S')
+        date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d %H:%M:%S')
         display_date = date.strftime('%d.%m.%Y %H:%M')
-        keyboard.append([InlineKeyboardButton(text=f"Чек от {display_date}", callback_data=f"display_receipts_receipt_{i}")])
+        keyboard.append([InlineKeyboardButton(text=f"Чек от {display_date}", callback_data=f"display_receipts_receipt_{receipt['receipt_id']}")])
 
     nav_buttons = []
     if page > 0:
@@ -1072,17 +966,22 @@ async def handle_history_receipts(callback_query: CallbackQuery):
     await bot.delete_message(chat_id=callback_query.message.chat.id, message_id=callback_query.message.message_id)
 
     user_id = callback_query.from_user.id
-    user_json_path = os.path.join(DATABASE_PATH, f"user_{user_id}", "user_profile.json")
-    with open(user_json_path, 'r') as f:
-        user_data = json.load(f)
 
-    receipts = user_data.get('user_purchases', [])
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT *
+            FROM user_purchases
+            WHERE user_id = ?
+        """, (user_id,))
+        receipts = cursor.fetchall()
+
     if not receipts:
         back_button = create_back_button(text="Назад", callback_data="back_to_history_delete")
         await bot.send_message(user_id, "Ваша история покупок пока пуста", reply_markup=back_button)
         return
 
-    sorted_receipts = get_sorted_user_receipts(user_id, DATABASE_PATH)
+    sorted_receipts = get_sorted_user_receipts(user_id)
 
     # Create a new message if there isn't an existing one to edit
     if callback_query.message.text != "Выберите чек для просмотра:":
@@ -1111,31 +1010,46 @@ async def handle_display_receipts(callback_query: CallbackQuery):
     if callback_query.data.startswith("display_receipts_page_"):
         page = int(callback_query.data[len("display_receipts_page_"):])
         user_id = callback_query.from_user.id
-        sorted_receipts = get_sorted_user_receipts(user_id, DATABASE_PATH)
+        sorted_receipts = get_sorted_user_receipts(user_id)
         await display_receipts(user_id, callback_query.message, sorted_receipts, page)
         return
     elif callback_query.data.startswith("display_receipts_receipt_"):
         await bot.delete_message(chat_id=callback_query.message.chat.id, message_id=callback_query.message.message_id)
         user_id = callback_query.from_user.id
-        receipt_index = int(callback_query.data[len("display_receipts_receipt_"):])
-        receipt = get_sorted_user_receipts(user_id, DATABASE_PATH)[receipt_index]
-        await display_single_receipt(user_id, receipt)
+        receipt_id = callback_query.data[len("display_receipts_receipt_"):].strip()
+        await display_single_receipt(user_id, receipt_id)
         return
     
-    await show_history_options(callback_query.message)
+    await show_history_options(callback_query.message) #? What is this for? Remove?
 
-async def display_single_receipt(user_id: int, receipt: dict):
+async def display_single_receipt(user_id: int, receipt_id: str):
     """
     Displays a single receipt to the user.
 
     Args:
     user_id (int): The user ID to send the message to.
-    receipt (dict): The receipt to display.
+    receipt_id (str): The receipt ID to display.
 
     Returns:
     None
     """
-    items = [f'{i}. "{item["name"]}" - {item["quantity"]} - {item["user_prediction"]} ({int(item["confidence"]*100)})%' for i, item in enumerate(receipt["items"], 1)]
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT *
+            FROM receipt_items
+            WHERE receipt_id = ?
+        """, (receipt_id,))
+        receipt_items = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT *
+            FROM user_purchases
+            WHERE receipt_id = ?
+        """, (receipt_id,))
+        receipt = cursor.fetchone()
+
+    items = [f'{i}. "{item["name"]}" - {item["quantity"]} - {item["user_prediction"]} ({int(item["confidence"]*100)})%' for i, item in enumerate(receipt_items, start=1)]
     message = (f'{receipt["purchase_datetime"]} - {receipt["total_sum"]}₽\n'
                'Продукты:\n\n')
     message += '\n'.join(items)
@@ -1161,7 +1075,7 @@ async def display_categories(user_id, message, product_counts, undetected_catego
     for i in range(start_index, end_index):
         category, data = categories_list[i]
         total_amount = data['total_amount']
-        if total_amount == 'n/a':
+        if total_amount is None:
             display_text = f"{category}: не определено"
         else:
             display_text = f"{category}: {total_amount:.2f} г"
@@ -1286,7 +1200,7 @@ async def handle_category_sources(callback_query: CallbackQuery):
     categories_list = list(product_counts.items()) + list(undetected_categories.items())
     category, data = categories_list[category_index]
     
-    if data['total_amount'] == 'n/a':
+    if data['total_amount'] is None:
         sources_text = f"Категория: {category}\n\nНеопределенные продукты:\n\n"
         for i, source in enumerate(data['sources'], start=1):
             sources_text += f"{i}. {source}\n"

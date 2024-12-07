@@ -2,9 +2,9 @@ import sqlite3
 import os
 import json
 from datetime import datetime
-from utils.data_processor import parse_predict
+# from utils.data_processor import parse_predict
 from model.model_init import initialize_model
-from utils.utils import save_user_data
+# from utils.utils import save_user_data
 from config.config import DATABASE_PATH
 
 DATABASE_FOLDER_PATH = DATABASE_PATH
@@ -57,11 +57,12 @@ def create_database():
     -- user_purchases
     -- This table stores receipts for each user
     CREATE TABLE user_purchases (
-        receipt_id TEXT PRIMARY KEY,
+        receipt_id TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         purchase_datetime DATETIME,
         total_sum REAL,
         in_history BOOL NOT NULL DEFAULT 1,
+        PRIMARY KEY (receipt_id, user_id),
         FOREIGN KEY (user_id) REFERENCES main_database (user_id)
             ON DELETE CASCADE ON UPDATE CASCADE
     );
