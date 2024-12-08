@@ -8,6 +8,8 @@ INSTRUCTION_IMAGES_PATH = "instruction_images"
 DATABASE_PATH = "data/database"
 DATABASE_FILE_PATH ='data/database.db'
 MODEL_CONFIG_PATH = "config/model_config.json"
+BACKUP_FOLDER = 'data/backups'
+BACKUP_LIMIT = 100
 
 WELCOME_MESSAGES = (
     "Привет! Я ваш помощник по здоровой диете",

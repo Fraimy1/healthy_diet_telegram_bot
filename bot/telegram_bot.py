@@ -80,10 +80,9 @@ from aiogram.types import (
     Message,
 )
 from model.model_init import initialize_model
-from data.database_init import initialize_database
 from utils.data_processor import predict_product_categories, save_data_for_database, get_sorted_user_receipts, count_product_amounts, restructure_microelements, get_microelements_data, parse_json
-from utils.utils import create_user_profile, sanitize_username, create_back_button, update_user_contributions
-from utils.db_utils import db_connection
+from utils.utils import create_user_profile, create_back_button, update_user_contributions
+from utils.db_utils import db_connection, make_backup
 from config.config import (
     DATABASE_PATH, 
     INSTRUCTION_IMAGES_PATH, 
@@ -107,7 +106,6 @@ set_confidence_markup_queue = {}
 bert_2level_model, le = initialize_model()
 
 # ======= Database initialization =======
-database_info, unique_receipt_ids = initialize_database()
 MICROELEMENTS_TABLE = restructure_microelements()
 
 # ======= Bot main functionality =======
@@ -655,9 +653,9 @@ async def handle_json_upload(message: Message):
         else:
             await process_receipt(data_received, user_id, user_folder, idx_info)
         
-    # except Exception as e:
-    #     await message.answer("Произошла ошибка при обработке файла. Попробуйте еще раз")
-    #     print(f"Error processing file for user {user_id}: {e}")
+    except Exception as e:
+        await message.answer("Произошла ошибка при обработке файла. Попробуйте еще раз")
+        print(f"Error processing file for user {user_id}: {e}")
 
     finally:
         os.remove(file_path)
@@ -1432,9 +1430,11 @@ async def main():
     When the bot is stopped, it will close the aiohttp session.
     """
     try:
+        make_backup()
         print("Starting bot...")
         await dp.start_polling(bot)  
     finally:
+        make_backup()
         print("Stopping bot...")
         await bot.session.close()  
 
