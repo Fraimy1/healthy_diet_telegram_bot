@@ -2,13 +2,8 @@ import sqlite3
 import os
 import json
 from datetime import datetime
-# from utils.data_processor import parse_predict
 from model.model_init import initialize_model
-# from utils.utils import save_user_data
-from config.config import DATABASE_PATH
-
-DATABASE_FOLDER_PATH = DATABASE_PATH
-DATABASE_PATH = 'data/database.db'
+from config.config import DATABASE_FILE_PATH, DATABASE_PATH
 
 bert_2level_model, le = initialize_model()
 
@@ -18,7 +13,7 @@ def create_database():
     Connects to a SQLite database file and creates all the needed tables.
     :return: None
     """
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(DATABASE_FILE_PATH)
     conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign keys
     cursor = conn.cursor()
 
@@ -102,7 +97,7 @@ def user_profile_to_db(user_profile: dict) -> None:
     :param user_profile: A dictionary containing the user's profile information.
     :return: None
     """
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(DATABASE_FILE_PATH)
     cursor = conn.cursor()
 
     try:
@@ -207,7 +202,7 @@ def update_user_profile_db(user_id):
     based on the current number of receipts and items associated with the user.
     :param user_id: The ID of the user to update.
     """
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(DATABASE_FILE_PATH)
     cursor = conn.cursor()
 
     try:
@@ -252,7 +247,7 @@ def update_user_profile_db(user_id):
 
 
 def get_user_profile(user_id):    
-    user_path = os.path.join(DATABASE_FOLDER_PATH, f'user_{user_id}')
+    user_path = os.path.join(DATABASE_PATH, f'user_{user_id}')
 
     user_profile_path = [file for file in os.listdir(user_path) if file.startswith('user_profile')][0]
     if user_profile_path is None:
@@ -263,33 +258,34 @@ def get_user_profile(user_id):
 
     return user_profile
 
-def add_receipts_to_json(user_id, file_name):
-    user_folder = os.path.join(DATABASE_FOLDER_PATH, f"user_{user_id}")
-    file_path = os.path.join(user_folder, file_name)
+# Deprecated  
+# def add_receipts_to_json(user_id, file_name):
+#     user_folder = os.path.join(DATABASE_FOLDER_PATH, f"user_{user_id}")
+#     file_path = os.path.join(user_folder, file_name)
     
-    user_data = get_user_profile(user_id)
+#     user_data = get_user_profile(user_id)
 
-    with open(file_path, 'r') as f:
-        data_received = json.load(f)
+#     with open(file_path, 'r') as f:
+#         data_received = json.load(f)
 
-    print(f"User {user_id} file {file_name} loaded")
+#     print(f"User {user_id} file {file_name} loaded")
     
-    if isinstance(data_received, list):
-        print(f"File {file_name} contains a list of {len(data_received)} receipts")
-        for receipt_data in data_received:
-            data, receipt_info = parse_predict(receipt_data, bert_2level_model, le)
-            receipt_ids = [receipt.get('receipt_id') for receipt in user_data['user_purchases']]
-            if not receipt_info['receipt_id'] in receipt_ids:
-                save_user_data(data, receipt_info, user_id, add_to_history=False)
-                print(f"Receipt {receipt_info['receipt_id']} added to user {user_id}")
-            else:
-                print(f"Receipt {receipt_info['receipt_id']} already exists in user {user_id}")
-    else:
-        print(f"File {file_name} contains a single receipt")
-        data, receipt_info = parse_predict(data_received, bert_2level_model, le)
-        receipt_ids = [receipt.get('receipt_id') for receipt in user_data['user_purchases']]
-        if not receipt_info['receipt_id'] in receipt_ids:
-            save_user_data(data, receipt_info, user_id, add_to_history=False)
-            print(f"Receipt {receipt_info['receipt_id']} added to user {user_id}")
-        else:
-            print(f"Receipt {receipt_info['receipt_id']} already exists in user {user_id}")
+#     if isinstance(data_received, list):
+#         print(f"File {file_name} contains a list of {len(data_received)} receipts")
+#         for receipt_data in data_received:
+#             data, receipt_info = parse_predict(receipt_data, bert_2level_model, le)
+#             receipt_ids = [receipt.get('receipt_id') for receipt in user_data['user_purchases']]
+#             if not receipt_info['receipt_id'] in receipt_ids:
+#                 save_user_data(data, receipt_info, user_id, add_to_history=False)
+#                 print(f"Receipt {receipt_info['receipt_id']} added to user {user_id}")
+#             else:
+#                 print(f"Receipt {receipt_info['receipt_id']} already exists in user {user_id}")
+#     else:
+#         print(f"File {file_name} contains a single receipt")
+#         data, receipt_info = parse_predict(data_received, bert_2level_model, le)
+#         receipt_ids = [receipt.get('receipt_id') for receipt in user_data['user_purchases']]
+#         if not receipt_info['receipt_id'] in receipt_ids:
+#             save_user_data(data, receipt_info, user_id, add_to_history=False)
+#             print(f"Receipt {receipt_info['receipt_id']} added to user {user_id}")
+#         else:
+#             print(f"Receipt {receipt_info['receipt_id']} already exists in user {user_id}")

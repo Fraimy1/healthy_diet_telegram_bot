@@ -1,8 +1,9 @@
 import os 
 import gdown
 import json
-from config.repository_config import LABEL_ENCODER_LINK, BERT_MODEL_LINK, BINARY_MODEL_LINK, DYNAMIC_DATASET_LINK, CLEANED_MICROELEMENTS_TABLE_LINK
-from config.config import DATABASE_PATH, MODEL_CONFIG_PATH
+from config.repository_config import LABEL_ENCODER_LINK, BERT_MODEL_LINK, BINARY_MODEL_LINK, CLEANED_MICROELEMENTS_TABLE_LINK, DATASET_LINKS
+from config.config import DATABASE_PATH, MODEL_CONFIG_PATH, DATABASE_FILE_PATH, DATASETS_FOLDER
+from migration.migration_utils import create_database
 
 def prepare_path(path:str):
     """
@@ -38,12 +39,10 @@ def data_initialization():
     os.makedirs(DATABASE_PATH, exist_ok=True)
     os.makedirs(model_config['weights_path'], exist_ok=True)
 
-    if not os.path.exists(os.path.join(DATABASE_PATH, 'database_info.json')):
-        with open(os.path.join(DATABASE_PATH, 'database_info.json'), 'w') as f:
-            json.dump({'unique_receipt_ids': []}, f)
-    
+    if not os.path.exists(DATABASE_FILE_PATH):
+        create_database()
     try:     
-        assert all([LABEL_ENCODER_LINK, BERT_MODEL_LINK, BINARY_MODEL_LINK, DYNAMIC_DATASET_LINK, CLEANED_MICROELEMENTS_TABLE_LINK]), 'All links must be provided in config/repository_config.py'
+        assert all([LABEL_ENCODER_LINK, BERT_MODEL_LINK, BINARY_MODEL_LINK, CLEANED_MICROELEMENTS_TABLE_LINK, DATASET_LINKS]), 'All links must be provided in config/repository_config.py'
     except AssertionError as e:
         print(e)
         print('Data initialization partially completed')
@@ -55,8 +54,10 @@ def data_initialization():
     gdown.download(prepare_path(BINARY_MODEL_LINK), model_config['binary_best_weights_path'], quiet=False)
 
     # Download data
-    gdown.download(prepare_path(DYNAMIC_DATASET_LINK), os.path.join(DATABASE_PATH, 'dynamic_dataset.csv'), quiet=False)
     gdown.download(prepare_path(CLEANED_MICROELEMENTS_TABLE_LINK), os.path.join(DATABASE_PATH, 'cleaned_microelements_table.csv'), quiet=False)
+    DATASETS_NAMES = ['dynamic_dataset_not_reviewed.csv', 'data_nov28_combined.csv', 'data_nov28_combined_parsed.csv'][len(DATASET_LINKS):]
+    for dataset_link, database_name in zip(DATASET_LINKS, DATASETS_NAMES):
+        gdown.download(prepare_path(dataset_link), os.path.join(DATASETS_FOLDER, f'{database_name}.csv'), quiet=False)
 
     print('Data initialization completed')
 
