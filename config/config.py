@@ -2,14 +2,21 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+# Telegram bot related config
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-
 INSTRUCTION_IMAGES_PATH = "instruction_images"
 DATABASE_PATH = "data/database"
+
+# Database config
 DATABASE_FILE_PATH ='data/database.db'
-MODEL_CONFIG_PATH = "config/model_config.json"
 BACKUP_FOLDER = 'data/backups'
 BACKUP_LIMIT = 100
+
+# Model config
+MODEL_CONFIG_PATH = "config/model_config.json"
+TRAINING_HISTORY_PATH = 'training/history'
+DATASETS_FOLDER = "data/datasets"
+
 
 WELCOME_MESSAGES = (
     "Привет! Я ваш помощник по здоровой диете",

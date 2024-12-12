@@ -263,8 +263,33 @@ class Parser:
         """Cleans the dataset."""
         return [self.clean_entry(entry, **kwargs) for entry in data]
 
-    def parse_entry(self, entry, options, preprocessing=True):
-        """Parses a single data entry and extracts relevant information."""
+    def parse_entry(self, entry, preprocessing=True, **kwargs):
+        """
+        Parses a single data entry and extracts relevant information.
+
+        Parameters:
+        - entry (str): The data entry to parse.
+        - preprocessing (bool): If True, perform initial cleaning steps before parsing.
+        - **kwargs: Options for extraction, similar to clean_entry.
+
+        Returns:
+        - info (dict): A dictionary containing extracted information.
+        """
+        default_options = {
+            'extract_hierarchical_number': True,
+            'extract_percentage': True,
+            'extract_amount': True,
+            'extract_portion': True,
+            'extract_cost': True,
+            'extract_code': True,
+        }
+
+        for key in kwargs:
+            if key not in default_options:
+                raise ValueError(f"Unknown option '{key}' provided to parse_entry.")
+
+        options = {**default_options, **kwargs}
+
         # Perform cleaning steps required for parsing
         if preprocessing:
             entry = self.clean_entry(
