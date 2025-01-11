@@ -11,7 +11,9 @@ history
 *.log
 *.sqlite
 data/database/
+html_parser/
 *.ipynb
 *.db
+*.xlsx
 
 __pycache__
