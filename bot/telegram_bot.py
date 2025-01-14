@@ -511,7 +511,7 @@ async def send_excel_document(data_recieved, receipt_info, user_id):
 
         # Add new columns
         data['amount_unit'] = data.get('amount', ['n/a'] * len(data))
-        data['receipt_id'] = receipt_info.get('receipt_id', uuid.uuid4().hex())
+        data['receipt_id'] = receipt_info.get('receipt_id')
         data['unique_id'] = [str(uuid.uuid4()) for _ in range(len(data))]
 
         # Split amount_unit into amount and unit
@@ -592,6 +592,8 @@ async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
         display_date = datetime.strptime(receipt_info.get('purchase_datetime'), '%Y-%m-%d_%H:%M:%S').strftime('%d.%m.%Y %H:%M')
         data = predict_product_categories(items_data, bert_2level_model, le, min_confidence)
         
+        print(data[data.columns[:8]])
+        print(data[data.columns[8:]])
         # Deprecated
         receipt_file_path = os.path.join(user_folder, f'file_{receipt_id}.json')
         with open(receipt_file_path, 'w') as f:
