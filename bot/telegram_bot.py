@@ -69,6 +69,7 @@ from datetime import datetime
 import uuid
 from collections import defaultdict
 import tempfile
+import uuid
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -510,7 +511,7 @@ async def send_excel_document(data_recieved, receipt_info, user_id):
 
         # Add new columns
         data['amount_unit'] = data.get('amount', ['n/a'] * len(data))
-        data['receipt_id'] = receipt_info.get('receipt_id')
+        data['receipt_id'] = receipt_info.get('receipt_id', uuid.uuid4().hex())
         data['unique_id'] = [str(uuid.uuid4()) for _ in range(len(data))]
 
         # Split amount_unit into amount and unit

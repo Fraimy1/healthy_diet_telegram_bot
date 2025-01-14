@@ -1,4 +1,4 @@
-tensorflow[and-cuda]
+tensorflow
 pandas==2.2.3
 numpy==1.26.4
 scikit-learn==1.5.2
@@ -22,3 +22,4 @@ transformers==4.45.1
 selenium==4.27.1
 webdriver-manager==4.0.2
 beautifulsoup4==4.12.3
+uuid    

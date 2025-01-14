@@ -8,6 +8,7 @@ import os
 import json
 import sqlite3
 from contextlib import contextmanager
+import uuid
 
 parser = Parser()
 
@@ -21,7 +22,7 @@ def parse_json(receipt_data: dict):
     Returns:
         tuple: A tuple containing a pandas DataFrame with the receipt items and a dictionary with the receipt information.
     """
-    receipt_id = receipt_data.get("_id")
+    receipt_id = receipt_data.get("_id", uuid.uuid4().hex())
     receipt_doc = receipt_data["ticket"]["document"]["receipt"]
 
     purchase_datetime = receipt_doc.get("dateTime")
