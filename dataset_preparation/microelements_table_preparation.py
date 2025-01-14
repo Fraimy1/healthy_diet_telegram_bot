@@ -6,12 +6,11 @@
 import pandas as pd
 import os
 from config.config import DATABASE_PATH
-from IPython.display import display
 
 # Чтение CSV файла
 path = os.path.join(DATABASE_PATH, 'jan10_microelements_dirty.csv')
 df = pd.read_csv(path, sep=',')
-display(df)
+
 # Получение значений из первой строки
 first_row = df.iloc[0]
 
@@ -19,7 +18,7 @@ first_row = df.iloc[0]
 grouped_dict = {}
 for col in df.columns:
     key = first_row[col]
-    if key is None:
+    if key is None or not type(key) == str:
         continue
     grouped_dict.setdefault(key, []).append(col)
 
@@ -27,7 +26,7 @@ print(grouped_dict, '-'*100, sep='\n')
 
 # Удаление первой строки из DataFrame
 df = df.drop(0).reset_index(drop=True)
-display(df.columns)
+
 # Удаление строк с пропусками в 'Продукт в ТХС'
 df.dropna(subset=['Продукт в ТХС'], inplace=True)
 

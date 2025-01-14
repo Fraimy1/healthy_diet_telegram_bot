@@ -22,34 +22,52 @@ def parse_json(receipt_data: dict):
     Returns:
         tuple: A tuple containing a pandas DataFrame with the receipt items and a dictionary with the receipt information.
     """
-    receipt_id = receipt_data.get("_id", uuid.uuid4().hex())
-    receipt_doc = receipt_data["ticket"]["document"]["receipt"]
+    # Generate UUID first as fallback
+    receipt_id = str(uuid.uuid4())
+    
+    try:
+        # Try to get the _id if it exists, otherwise keep the UUID
+        if "_id" in receipt_data:
+            receipt_id = receipt_data["_id"]
+            
+        if receipt_data.get('ticket'):
+            receipt_doc = receipt_data["ticket"]["document"]["receipt"]
+        else:
+            receipt_doc = receipt_data
+        purchase_datetime = receipt_doc.get("dateTime")
+        
+        if purchase_datetime and isinstance(purchase_datetime, str):
+            for format_string in ["%Y-%m-%dT%H:%M:%S"]:
+                try:
+                    purchase_datetime = datetime.strptime(purchase_datetime, format_string).strftime("%Y-%m-%d_%H:%M:%S")
+                except:
+                    pass
+        elif 'localDateTime' in receipt_doc:
+            purchase_datetime = datetime.strptime(receipt_doc['localDateTime'], "%Y-%m-%dT%H:%M").strftime("%Y-%m-%d_%H:%M:%S")
+        else:
+            purchase_datetime = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+            
+        total_sum = receipt_doc.get("ecashTotalSum", receipt_doc.get("cashTotalSum", 0))
+        total_sum = float(total_sum) / 100  # to rubles
 
-    purchase_datetime = receipt_doc.get("dateTime")
-    if purchase_datetime:
-        purchase_datetime = datetime.strptime(purchase_datetime, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d_%H:%M:%S")
-    if receipt_doc.get("ecashTotalSum", 0) == 0:
-        total_sum = receipt_doc.get("cashTotalSum", 0)
-    else:
-        total_sum = receipt_doc.get("ecashTotalSum", 0)
+        items = receipt_doc["items"]
+        items = [
+            {
+                "name": item["name"],
+                "quantity": item["quantity"],
+                "sum_rub": float(item["sum"]) / 100,
+            }
+            for item in items
+        ]
 
-    total_sum = float(total_sum) / 100  # to rubles
+    except Exception as e:
+        raise ValueError(f"Error parsing receipt data: {str(e)}")
 
     receipt_info = {
         "receipt_id": receipt_id,
         "purchase_datetime": purchase_datetime,
         "total_sum": total_sum,
     }
-
-    items = receipt_doc["items"]
-    items = [
-        {
-            "name": item["name"],
-            "quantity": item["quantity"],
-            "sum_rub": float(item["sum"]) / 100,
-        }
-        for item in items
-    ]
 
     return pd.DataFrame(items), receipt_info
 
@@ -304,13 +322,12 @@ def restructure_microelements():
     microelements_table = pd.read_csv(os.path.join(DATABASE_PATH, 'cleaned_microelements_table.csv'), sep='|')
 
     restructured = {}
-
     for _, row in microelements_table.iterrows():
         product_name = row['Продукт в ТХС'].lower().strip()
         product_data = {}
 
         for column in microelements_table.columns:
-            if column != 'Продукт в ТХС':
+            if column.strip() != 'Продукт в ТХС':
                 # Translate the column name if it's in the dictionary
                 translated_column = ABBREVIATION_MICROELEMENTS_DICT.get(column.strip(), column.strip())
                 product_data[translated_column] = row[column]

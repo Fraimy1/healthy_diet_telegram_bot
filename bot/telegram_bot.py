@@ -572,6 +572,8 @@ async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
     Returns:
         None
     """
+    receipt_id = None  # Initialize receipt_id outside the try block
+    
     try:
         with db_connection() as conn:
             cursor = conn.cursor()
@@ -586,7 +588,7 @@ async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
         return_excel_document = user_data.get('return_excel_document', False)
 
         items_data, receipt_info = parse_json(receipt_data)
-        receipt_id = receipt_info.get('receipt_id')
+        receipt_id = receipt_info.get('receipt_id')  # Now receipt_id is defined
         display_date = datetime.strptime(receipt_info.get('purchase_datetime'), '%Y-%m-%d_%H:%M:%S').strftime('%d.%m.%Y %H:%M')
         data = predict_product_categories(items_data, bert_2level_model, le, min_confidence)
         
@@ -617,8 +619,9 @@ async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
                 )
 
     except Exception as e:
-        await bot.send_message(user_id, text = f"Произошла ошибка при обработке чека с ID {receipt_id}")
-        print(f"Error processing receipt {receipt_id} for user {user_id}: {e}")
+        error_msg = f"Error processing receipt {receipt_id if receipt_id else 'unknown'} for user {user_id}: {e}"
+        print(error_msg)
+        await bot.send_message(user_id, text = f"Произошла ошибка при обработке чека{' с ID ' + receipt_id if receipt_id else ''}")
 
 
 @dp.message(lambda message: message.document and message.document.file_name.endswith('.json'))
@@ -1441,4 +1444,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())  
+    asyncio.run(main())
