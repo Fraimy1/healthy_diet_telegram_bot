@@ -18,9 +18,8 @@ parser = Parser()
 highlighted_items['cleaned_names'] = parser.clean_dataset(highlighted_items['name'])
 items['cleaned_names'] = parser.clean_dataset(items['name'])
 
-# Fix: Pass only the cleaned text data to the model
-highlighted_items['prediction'] = le.inverse_transform(bert_2level_model.predict(highlighted_items['cleaned_names'].tolist(), 1024)[0])
-items['prediction'] = le.inverse_transform(bert_2level_model.predict(items['cleaned_names'].tolist(), 1024)[0])
+highlighted_items['prediction'] = le.inverse_transform(bert_2level_model.predict(highlighted_items, 64))
+items['prediction'] = le.inverse_transform(bert_2level_model.predict(items, 64))
 
 highlighted_items.drop(columns=['cleaned_names'], inplace=True)
 items.drop(columns=['cleaned_names'], inplace=True)

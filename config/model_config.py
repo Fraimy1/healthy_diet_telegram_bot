@@ -1,0 +1,20 @@
+# Model configuration
+MODEL_NAME = "bert_2level_parsed"
+WEIGHTS_PATH = "model/model_weights"
+BERT_BEST_WEIGHTS_PATH = "model/model_weights/bert_model_weights.h5"
+BINARY_BEST_WEIGHTS_PATH = "model/model_weights/binary_model_weights.h5"
+LABEL_ENCODER_PATH = "model/model_weights/label_encoder.pkl"
+MAX_LENGTH = 80
+NUM_LABELS = 1427
+INEDIBLE_CLASS = "несъедобное"
+INEDIBLE_NUM = -1
+
+# Training configuration
+NUM_EPOCHS = 60
+TEST_SPLIT = 0.1
+BATCH_SIZE = 45
+LEARNING_RATE = 1e-3
+SAVING_WEIGHTS_FREQUENCY = 1
+EARLY_STOPPING_PATIENCE = 8
+LR_DECAY_RATE = 0.965
+DECAYS_PER_EPOCH = 2

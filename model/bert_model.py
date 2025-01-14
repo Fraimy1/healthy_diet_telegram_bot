@@ -84,7 +84,7 @@ class BertModel:
         return dataset
 
     def train(self, inputs, outputs, epochs, validation_data=None, lr=1e-4, batch_size=16, 
-              metrics=['accuracy'], callbacks=None):
+              metrics=['accuracy'], callbacks=None, lr_decay=False, decay_rate=0.96, decay_steps=100):
         """
         Обучение модели BERT.
 
@@ -93,10 +93,13 @@ class BertModel:
         - outputs (list[int]): Метки классов.
         - epochs (int): Количество эпох.
         - validation_data (tuple): Валидационные данные.
-        - lr (float): Скорость обучения.
+        - lr (float): Начальная скорость обучения.
         - batch_size (int): Размер мини-пакета.
         - metrics (list): Метрики для оценки.
         - callbacks (list): Список обратных вызовов.
+        - lr_decay (bool): Включить ли убывание скорости обучения.
+        - decay_rate (float): Коэффициент уменьшения скорости обучения.
+        - decay_steps (int): Шаги между уменьшениями скорости обучения.
 
         Возвращает:
         - history: История обучения.
@@ -106,11 +109,27 @@ class BertModel:
         if validation_data:
             validation_data = self._build_dataset(validation_data[0], validation_data[1], batch_size)
 
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        # Configure learning rate schedule if lr_decay is enabled
+        if lr_decay:
+            learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+                initial_learning_rate=lr,
+                decay_steps=decay_steps,
+                decay_rate=decay_rate,
+                staircase=True
+            )
+            optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate_schedule)
+        else:
+            optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+
         loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
         self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
-        history = self.model.fit(train_data, epochs=epochs, callbacks=callbacks, validation_data=validation_data)
+        history = self.model.fit(
+            train_data,
+            epochs=epochs,
+            callbacks=callbacks,
+            validation_data=validation_data,
+        )
         self.history = history
         return history
 

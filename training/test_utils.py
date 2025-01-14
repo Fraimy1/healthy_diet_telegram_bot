@@ -54,6 +54,7 @@ import pandas as pd
 from collections import defaultdict
 from model.bert_model import BertModel
 import itertools
+from config.model_config import BATCH_SIZE
 
 def predict(text, label_encoder, model: BertModel):
     """
@@ -106,7 +107,7 @@ def calculate_metrics(y_true, y_pred):
     f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
     return accuracy, precision, recall, f1
 
-def test_model_on_epoch(x, y, model: BertModel, path, batch_size=256):
+def test_model_on_epoch(x, y, model: BertModel, path, batch_size=BATCH_SIZE):
     """
     Оценивает заданную модель на указанных данных для указанной эпохи.
 
@@ -139,7 +140,7 @@ def test_model_on_epoch(x, y, model: BertModel, path, batch_size=256):
     accuracy, precision, recall, f1 = calculate_metrics(y, preds) 
     return accuracy, precision, recall, f1
 
-def model_evaluate_during_training(model: BertModel, training_path, epochs=None, train_data=None, test_data=None, save_history=True):
+def model_evaluate_during_training(model: BertModel, training_path, epochs=None, train_data=None, test_data=None, batch_size=BATCH_SIZE, save_history=True):
     """
     Оценивает заданную модель на предоставленных данных на каждой эпохе в процессе обучения.
 
@@ -181,13 +182,13 @@ def model_evaluate_during_training(model: BertModel, training_path, epochs=None,
 
         # Расчёт метрик для тренировочных данных
         if train_data:
-            train_metrics = test_model_on_epoch(train_data[0], train_data[1], model, os.path.join(training_path, path)) 
+            train_metrics = test_model_on_epoch(train_data[0], train_data[1], model, os.path.join(training_path, path), batch_size=batch_size) 
             for metric, value in zip(metrics_names, train_metrics):
                 history_train[metric].append(value)
         
         # Расчёт метрик для тестовых данных
         if test_data:
-            test_metrics = test_model_on_epoch(test_data[0], test_data[1], model, os.path.join(training_path, path))
+            test_metrics = test_model_on_epoch(test_data[0], test_data[1], model, os.path.join(training_path, path), batch_size=batch_size)
             for metric, value in zip(metrics_names, test_metrics):
                 history_test[metric].append(value)
 

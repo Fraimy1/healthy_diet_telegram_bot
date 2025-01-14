@@ -3,12 +3,17 @@ from model.bert_model import BertModel
 import pandas as pd
 import datetime
 import os
+import shutil  # Add missing import
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from training.test_utils import model_evaluate_during_training, plot_training_history, find_best_epoch
-from config.config import DATASETS_FOLDER, MODEL_CONFIG_PATH, TRAINING_HISTORY_PATH
-import json
-import shutil
+from config.config import DATASETS_FOLDER, TRAINING_HISTORY_PATH
+from config.model_config import (
+    MODEL_NAME, WEIGHTS_PATH, MAX_LENGTH,
+    NUM_EPOCHS, TEST_SPLIT, BATCH_SIZE,
+    SAVING_WEIGHTS_FREQUENCY, EARLY_STOPPING_PATIENCE,
+    LR_DECAY_RATE, LEARNING_RATE, DECAYS_PER_EPOCH
+)
 
 """
 Этот код предназначен для обучения модели BERT для классификации текстов. 
@@ -68,15 +73,9 @@ class CustomSaver(tf.keras.callbacks.Callback):
 # ====== Обучение на парсированных данных ======
 
 # Параметры
-with open(MODEL_CONFIG_PATH, 'r') as f:
-    MODEL_CONFIG = json.load(f)
 
-DATA_PATH = os.path.join(DATASETS_FOLDER, 'data_nov28_updated.csv')
-NUM_EPOCHS = 2  # Кол-во эпох тренировки
-TEST_SPLIT = 0.1  # Сколько данных отделить на тестирование модели
-BATCH_SIZE = 80   # Сколько примеров модель будет обрабатывать параллельно
-SAVING_WEIGHTS_FREQUENCY = 1
-EARLY_STOPPING_PATIENECE = 8  # Количество эпох для ранней остановки
+# Remove JSON loading and use MODEL_CONFIG directly
+DATA_PATH = os.path.join(DATASETS_FOLDER, 'data_jan10_combined_parsed.csv')
 
 # Загрузка данных
 df = pd.read_csv(DATA_PATH, sep='|').fillna('empty')
@@ -107,19 +106,21 @@ x_train, x_test, y_train, y_test = train_test_split(
 # Инициализация модели
 bert_model = BertModel(
     num_labels=NUM_CLASSES,
-    max_length=MODEL_CONFIG['max_length']
+    max_length=MAX_LENGTH
 )
 
 # Настройка путей сохранения
-model_full_name = f"bert_binary_weights_{MODEL_CONFIG['model_name']}_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}"
+model_full_name = f"bert_binary_weights_{MODEL_NAME}_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}"
 saving_path = os.path.join(TRAINING_HISTORY_PATH, model_full_name)
 
 # Настройка обратных вызовов
-es = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=EARLY_STOPPING_PATIENECE)
+es = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=EARLY_STOPPING_PATIENCE)
 callbacks = [
     CustomSaver(save_freq=SAVING_WEIGHTS_FREQUENCY, folder_name=saving_path),
     es
 ]
+
+print('decay_steps used:',(len(x_train)//BATCH_SIZE) // DECAYS_PER_EPOCH)
 
 # Обучение модели
 history = bert_model.train(
@@ -127,11 +128,14 @@ history = bert_model.train(
     y_train,
     validation_data=(x_test, y_test),
     batch_size=BATCH_SIZE,
+    lr = LEARNING_RATE,
     epochs=NUM_EPOCHS,
     metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy')],
-    callbacks=callbacks
+    callbacks=callbacks,
+    lr_decay=True,
+    decay_rate = LR_DECAY_RATE, # Reduce lr by 4% every time
+    decay_steps= (len(x_train)//BATCH_SIZE) // DECAYS_PER_EPOCH # Reduce lr every half an epoch
 )
-
 # Тестирование модели
 print('Тестирование модели')
 history_train, history_test = model_evaluate_during_training(
@@ -159,4 +163,6 @@ for filename in os.listdir(saving_path):
         best_weights_filename = filename
 
 best_weights_path = os.path.join(saving_path, best_weights_filename)
-shutil.copy(best_weights_path, os.path.join(MODEL_CONFIG['weights_path'], model_full_name + '.h5'))
+destination_path = os.path.join(WEIGHTS_PATH, model_full_name + '.h5')
+os.makedirs(WEIGHTS_PATH, exist_ok=True)  # Ensure directory exists
+shutil.copy(best_weights_path, destination_path)

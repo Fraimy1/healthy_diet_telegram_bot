@@ -7,8 +7,8 @@ import pandas as pd
 import os
 from config.config import DATASETS_FOLDER
 
-FILE_NAME = 'data_nov28_combined.csv'
-PARSED_FILE_NAME = 'data_nov28_combined_parsed2.csv'
+FILE_NAME = 'data_jan10_combined.csv'
+PARSED_FILE_NAME = 'data_jan10_combined_parsed.csv'
 
 # Загрузка данных из CSV файла
 data = pd.read_csv(os.path.join(DATASETS_FOLDER, FILE_NAME), sep='|')
