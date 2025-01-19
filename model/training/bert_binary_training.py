@@ -72,8 +72,6 @@ class CustomSaver(tf.keras.callbacks.Callback):
 
 # ====== Обучение на парсированных данных ======
 
-# Параметры
-
 # Remove JSON loading and use MODEL_CONFIG directly
 DATA_PATH = os.path.join(DATASETS_FOLDER, 'data_jan10_combined_parsed.csv')
 

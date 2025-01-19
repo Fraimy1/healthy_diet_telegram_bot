@@ -1,4 +1,5 @@
 import tensorflow as tf
+import pickle
 from model.bert_model import BertModel
 import pandas as pd
 import datetime
@@ -6,13 +7,15 @@ import os
 import shutil  # Add missing import
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from training.test_utils import model_evaluate_during_training, plot_training_history, find_best_epoch
+from model.training.test_utils import model_evaluate_during_training, plot_training_history, find_best_epoch
+from model.bert_model import CustomLabelEncoder
 from config.config import DATASETS_FOLDER, TRAINING_HISTORY_PATH
 from config.model_config import (
     MODEL_NAME, WEIGHTS_PATH, MAX_LENGTH,
     NUM_EPOCHS, TEST_SPLIT, BATCH_SIZE,
     SAVING_WEIGHTS_FREQUENCY, EARLY_STOPPING_PATIENCE,
-    LR_DECAY_RATE, LEARNING_RATE, DECAYS_PER_EPOCH
+    LR_DECAY_RATE, LEARNING_RATE, DECAYS_PER_EPOCH,
+    INEDIBLE_NUM, INEDIBLE_CLASS
 )
 
 """
@@ -91,11 +94,17 @@ x = df['product_name'].tolist()
 y = df['clear_name'].tolist()
 
 # Кодирование меток
-le = LabelEncoder()
-le.fit(y)
-y = le.transform(y)
-NUM_CLASSES = len(le.classes_)
+custom_le = CustomLabelEncoder(INEDIBLE_NUM, INEDIBLE_CLASS)
+custom_le.fit(y)
+y = custom_le.transform(y)
+NUM_CLASSES = len(custom_le.classes_)
 print(f"Количество классов: {NUM_CLASSES}")
+
+# Save label encoder
+le_path = 'model/model_weights/label_encoder.pkl'
+os.makedirs(os.path.dirname(le_path), exist_ok=True)
+with open(le_path, 'wb') as f:
+    pickle.dump(custom_le, f)
 
 # Дублирование записей, если в классе только один пример
 y_list = list(y)

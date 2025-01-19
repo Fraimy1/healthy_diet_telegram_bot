@@ -1,11 +1,11 @@
 # Model configuration
 MODEL_NAME = "bert_2level_parsed"
 WEIGHTS_PATH = "model/model_weights"
-BERT_BEST_WEIGHTS_PATH = "model/model_weights/bert_model_weights.h5"
-BINARY_BEST_WEIGHTS_PATH = "model/model_weights/binary_model_weights.h5"
+BERT_BEST_WEIGHTS_PATH = "model/model_weights/bert_multilabel_weights_0.9943_0.0245_23.h5"
+BINARY_BEST_WEIGHTS_PATH = "model/model_weights/bert_binary_weights_0.9962_0.0130_10.h5"
 LABEL_ENCODER_PATH = "model/model_weights/label_encoder.pkl"
 MAX_LENGTH = 80
-NUM_LABELS = 1427
+NUM_LABELS = 1416
 INEDIBLE_CLASS = "несъедобное"
 INEDIBLE_NUM = -1
 
