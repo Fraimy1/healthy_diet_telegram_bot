@@ -8,12 +8,11 @@ INSTRUCTION_IMAGES_PATH = "instruction_images"
 DATABASE_PATH = "data/database"
 
 # Database config
-DATABASE_FILE_PATH ='data/database.db'
+DATABASE_FILE_PATH ='data/new_database.db'
 BACKUP_FOLDER = 'data/backups'
 BACKUP_LIMIT = 100
 
 # Model config
-MODEL_CONFIG_PATH = "config/model_config.json"
 TRAINING_HISTORY_PATH = 'training/history'
 DATASETS_FOLDER = "data/datasets"
 
