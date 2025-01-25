@@ -68,5 +68,3 @@ if not os.path.exists(UPDATED_DATASET_PATH):
         print('Dataset was updated')
     else:
         print('Dataset was not updated')
-
-

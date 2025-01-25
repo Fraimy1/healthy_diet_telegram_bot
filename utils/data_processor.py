@@ -1,13 +1,11 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from config.config import DATABASE_PATH, DATABASE_FILE_PATH, ABBREVIATION_MICROELEMENTS_DICT
+from config.config import DATABASE_PATH, ABBREVIATION_MICROELEMENTS_DICT
 from utils.parser import Parser
 from utils.db_utils import db_connection
 import os
-import json
 import sqlite3
-from contextlib import contextmanager
 import uuid
 
 parser = Parser()
@@ -108,67 +106,64 @@ def predict_product_categories(items_data, bert_2level_model, le, min_confidence
 def save_data_for_database(new_data, receipt_info, user_id):
     """
     Saves the processed receipt data into the SQLite database.
-
-    Args:
-        new_data (DataFrame): A pandas DataFrame containing receipt items with predictions.
-        receipt_info (dict): A dictionary containing receipt metadata.
-        user_id (int, optional): The user ID associated with the receipt. Defaults to None.
     """
-    # Use context manager for DB connection
     with db_connection() as conn:
         cursor = conn.cursor()
 
-        user_data_row = cursor.execute("SELECT * FROM main_database WHERE user_id = ?", (user_id,)).fetchone()
-        user_data = dict(user_data_row) if user_data_row else None
-
-        if user_data is None:
+        # Get user settings
+        user_settings = cursor.execute(
+            "SELECT add_to_history FROM user_settings WHERE user_id = ?", 
+            (user_id,)
+        ).fetchone()
+        
+        if user_settings is None:
             print(f"User with ID {user_id} not found in the database.")
             return
 
         try:
-            # Insert the receipt into the user_purchases table
+            # Insert the receipt into user_purchases table
             try:
-                # We insert a new receipt. If this receipt_id is duplicate, we skip it.
                 cursor.execute("""
-                    INSERT INTO user_purchases (receipt_id, user_id, purchase_datetime, total_sum, in_history)
-                    VALUES (:receipt_id, :user_id, :purchase_datetime, :total_sum, :in_history)
+                    INSERT INTO user_purchases (
+                        receipt_id, user_id, purchase_datetime, total_sum, in_history
+                    ) VALUES (:receipt_id, :user_id, :purchase_datetime, :total_sum, :in_history)
                 """, {
                     'receipt_id': receipt_info['receipt_id'],
                     'user_id': user_id,
-                    'purchase_datetime': datetime.strptime(receipt_info['purchase_datetime'], '%Y-%m-%d_%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
+                    'purchase_datetime': datetime.strptime(receipt_info['purchase_datetime'], 
+                                                         '%Y-%m-%d_%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
                     'total_sum': receipt_info['total_sum'],
-                    'in_history': user_data.get('add_to_history', False)
+                    'in_history': user_settings['add_to_history']
                 })
             except sqlite3.IntegrityError as e:
                 print(f"Skipping duplicate receipt {receipt_info['receipt_id']} due to: {e}")
                 return
 
-            # Insert receipt items into the receipt_items table
+            # Insert receipt items
             for _, row in new_data.iterrows():
                 try:
                     cursor.execute("""
                         INSERT INTO receipt_items (
-                            receipt_id, user_id, name, quantity, sum_rub, original_entry, percentage, amount,
-                            product_name, portion, prediction, user_prediction, confidence, in_history
+                            receipt_id, user_id, quantity, percentage, amount,
+                            product_name, portion, prediction, user_prediction,
+                            confidence, in_history
                         ) VALUES (
-                            :receipt_id, :user_id, :name, :quantity, :sum_rub, :original_entry, :percentage, :amount,
-                            :product_name, :portion, :prediction, :user_prediction, :confidence, :in_history
+                            :receipt_id, :user_id, :quantity, :percentage, :amount,
+                            :product_name, :portion, :prediction, :user_prediction,
+                            :confidence, :in_history
                         )
                     """, {
                         'receipt_id': receipt_info['receipt_id'],
                         'user_id': user_id,
-                        'name': row.get('name'),
                         'quantity': row.get('quantity', 1),
-                        'sum_rub': row.get('sum_rub', 0),
-                        'original_entry': row.get('original_entry', None),
                         'percentage': row.get('percentage', None),
                         'amount': row.get('amount', None),
-                        'product_name': row.get('product_name', None),
+                        'product_name': row.get('name', None),  # Original name from receipt
                         'portion': row.get('portion', None),
                         'prediction': row.get('prediction', None),
                         'user_prediction': row.get('user_prediction', None),
                         'confidence': row.get('confidence', 0.0),
-                        'in_history': user_data.get('add_to_history', False)
+                        'in_history': user_settings['add_to_history']
                     })
                 except sqlite3.IntegrityError as e:
                     print(f"Skipping duplicate item {row['name']} for receipt {receipt_info['receipt_id']} due to: {e}")
@@ -208,40 +203,23 @@ def get_sorted_user_receipts(user_id):
 
 def count_product_amounts(user_id):
     """
-    Counts the total amount of each product in a user's purchases from the SQLite database.
-
-    Args:
-        user_id (int): The user ID to count the products for.
-
-    Returns:
-        tuple: (product_counts, undetected_categories)
-               product_counts: { user_prediction: { 'total_amount': float, 'sources': [(product_name, amount), ...] }, ... }
-               undetected_categories: { user_prediction: { 'total_amount': 'n/a', 'sources': [product_name, ...] }, ... }
-
-    This function:
-    - Retrieves default_amounts for the user to determine standard weights for certain products.
-    - Joins user_purchases and receipt_items to get all items purchased by the user.
-    - Attempts to determine amount in grams either from the default_amounts table or by parsing the item amount string.
-    - If it cannot determine the amount in grams, it adds the product to undetected_categories.
+    Counts the total amount of each product in a user's purchases.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
 
-        # Retrieve default_amounts for this user
-        # Maps user_prediction categories to a default amount in grams, if available
+        # Retrieve default_amounts - note the new column name item_amount
         cursor.execute("""
-            SELECT item_name, item_amount_grams
+            SELECT item_name, item_amount
             FROM default_amounts
-            WHERE user_id = ?
-        """, (user_id,))
+        """)
         default_amounts_data = cursor.fetchall()
-        default_amounts = {row['item_name']: row['item_amount_grams'] for row in default_amounts_data}
+        default_amounts = {row['item_name']: row['item_amount'] for row in default_amounts_data}
 
-        # Retrieve all items for this user by joining user_purchases and receipt_items
-        # This gives us item details (name, quantity, amount, user_prediction) along with receipt_id
+        # Retrieve all items for this user
         cursor.execute("""
             SELECT 
-                ri.name, 
+                ri.product_name,
                 ri.quantity, 
                 ri.amount, 
                 ri.user_prediction, 
@@ -256,10 +234,10 @@ def count_product_amounts(user_id):
     undetected_categories = {}
 
     for row in items_data:
-        product_name = row['name']
+        product_name = row['product_name']  # Changed from row['name']
         user_prediction = (row['user_prediction'] or '').strip()
         quantity = row['quantity'] if row['quantity'] is not None else 1
-        amount_str = row['amount']  # May be None
+        amount_str = row['amount']
 
         # Skip items predicted as несъедобное (inedible)
         if user_prediction == 'несъедобное':
@@ -270,25 +248,19 @@ def count_product_amounts(user_id):
         default_amount_grams = default_amounts.get(user_prediction, None)
 
         if default_amount_grams is not None:
-            # Use default amount
             amount_grams = default_amount_grams * quantity
         else:
-            # Try to parse amount if available
             if amount_str is not None:
-                # Example format: "1 кг", "230 мл"
                 parts = amount_str.split()
                 if len(parts) == 2:
                     try:
                         converted = parser.convert_amount_units_to_grams(amount_str)
                         if converted is not None:
                             amount_grams = converted * quantity
-                        # If converted is None, we can't determine the amount_grams
                     except Exception:
-                        # If parsing or conversion fails, amount_grams stays None
                         pass
 
         if amount_grams is None:
-            # Could not determine amount_grams
             if user_prediction not in undetected_categories:
                 undetected_categories[user_prediction] = {'total_amount': 'n/a', 'sources': []}
             undetected_categories[user_prediction]['sources'].append(product_name)
@@ -301,11 +273,10 @@ def count_product_amounts(user_id):
         product_counts[user_prediction]['total_amount'] += amount_grams
         product_counts[user_prediction]['sources'].append((product_name, amount_grams))
 
-    # Sort sources for each product by amount descending
+    # Sort sources and products
     for product in product_counts:
         product_counts[product]['sources'].sort(key=lambda x: x[1], reverse=True)
 
-    # Sort product_counts by total_amount descending
     sorted_products = sorted(product_counts.items(), key=lambda x: x[1]['total_amount'], reverse=True)
     product_counts = dict(sorted_products)
 

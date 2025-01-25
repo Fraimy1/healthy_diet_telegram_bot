@@ -42,7 +42,7 @@ This Python script defines the functionality of a Telegram bot that helps users 
 
     - Main Menu Options:
         - Users can access various functionalities through the main menu (implicitly presented after interactions).
-        - These functionalities might include adding receipts to history, receiving Excel reports, etc. (not implemented in this snippet).
+        - These functionalities include adding receipts to history and viewing usage statistics.
 
 - Helper Functions:
 
@@ -388,7 +388,7 @@ async def handle_set_confidence(message: Message, user_id=None):
 
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("UPDATE main_database SET minimal_confidence_for_prediction = ? WHERE user_id = ?", (confidence_value, user_id))
+        cursor.execute("UPDATE user_settings SET minimal_prediction_confidence = ? WHERE user_id = ?", (confidence_value, user_id))
         conn.commit()
 
     back_button = create_back_button(text="Назад", callback_data="main_menu")
@@ -407,7 +407,6 @@ async def set_menu_button(bot: Bot):
     - /help: All information about the bot
     - /confidence: Change the minimal confidence for prediction
     - /add_to_history: Add receipts to your history?
-    - /return_excel_document: Return Excel documents with predictions on each receipt?
 
     Args:
         bot (Bot): The bot instance
@@ -422,7 +421,6 @@ async def set_menu_button(bot: Bot):
         BotCommand(command='/help', description='Вся информация о боте'),
         BotCommand(command='/confidence', description='Поменять уверенность предсказания модели'),
         BotCommand(command='/add_to_history', description='Добавлять ли чеки в вашу историю?'),
-        BotCommand(command='/return_excel_document', description='Отправлять ли Excel документы с предсказаниями на каждый чек?'),
     ]
     await bot.set_my_commands(main_menu_commands)
 
@@ -442,9 +440,9 @@ async def add_to_history(message:Message, user_id):
 
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT add_to_history FROM main_database WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT add_to_history FROM user_settings WHERE user_id = ?", (user_id,))
         add_to_history_value = not cursor.fetchone()[0]
-        cursor.execute("UPDATE main_database SET add_to_history = ? WHERE user_id = ?", (add_to_history_value, user_id))
+        cursor.execute("UPDATE user_settings SET add_to_history = ? WHERE user_id = ?", (add_to_history_value, user_id))
         conn.commit()
 
     back_button = create_back_button(text="Главное меню", callback_data="main_menu")
@@ -454,106 +452,8 @@ async def add_to_history(message:Message, user_id):
     else:
         await message.answer("❌ Добавление чеков в вашу историю отключено.", reply_markup=back_button)
 
-@dp.message(F.text.startswith('/return_excel_document'))    
-async def set_return_excel_document(message:Message, user_id=None):
-    """
-    Handle the /return_excel_document command.
-
-    This function is called when the user sends the /return_excel_document command.
-    It toggles the 'return_excel_document' option in the user's profile and sends a message back to the user with a success message and a back button.
-
-    Args:
-        message (Message): The message sent by the user.
-        user_id (int, optional): The user ID of the user that sent the message. Defaults to None.
-    """
-    user_id = user_id if user_id else message.from_user.id 
-
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT return_excel_document FROM main_database WHERE user_id = ?", (user_id,))
-        return_excel_document_value = not cursor.fetchone()[0]
-        cursor.execute("UPDATE main_database SET return_excel_document = ? WHERE user_id = ?", (return_excel_document_value, user_id))
-        conn.commit()
-
-    back_button = create_back_button(text="Главное меню", callback_data="main_menu")
-    
-    if return_excel_document_value:
-        await message.answer("✅ Отправление Excel документов с предсказаниями на каждый чек включено.", reply_markup=back_button)
-    else:
-        await message.answer("❌ Отправление Excel документов с предсказаниями на каждый чек отключено.", reply_markup=back_button)
-
 # In-Memory Storage for pending receipt IDs
-pending_receipts = {}
-
-async def send_excel_document(data_recieved, receipt_info, user_id):
-    """
-    Send an Excel document to the user.
-
-    This function is called when the user has requested an Excel document with predictions on a receipt.
-    It formats the data, adds new columns, splits the amount_unit column into amount and unit,
-    sets the percentage column, removes unnecessary columns, reorders the columns,
-    creates a temporary file, saves the DataFrame to the temporary Excel file,
-    creates a filename for the Excel file, sends the document to the user,
-    and removes the temporary file.
-
-    Args:
-        data_recieved (DataFrame): The DataFrame to be formatted and sent to the user.
-        receipt_info (dict): A dictionary containing information about the receipt.
-        user_id (int): The user ID of the user to send the document to.
-
-    Returns:
-        None
-    """
-    try:
-        # Format the data
-        data = data_recieved.copy()
-        data.fillna('n/a', inplace=True)
-
-        # Add new columns
-        data['amount_unit'] = data.get('amount', ['n/a'] * len(data))
-        data['receipt_id'] = receipt_info.get('receipt_id')
-        data['unique_id'] = [str(uuid.uuid4()) for _ in range(len(data))]
-
-        # Split amount_unit into amount and unit
-        data['amount'] = data['amount_unit'].apply(lambda x: x.split()[0] if x != 'n/a' else 'n/a')
-        data['unit'] = data['amount_unit'].apply(lambda x: x.split()[1] if x != 'n/a' else 'n/a')
-
-        # Set percentage column
-        data['percentage'] = data.get('percentage', ['n/a'] * len(data))
-
-        # Remove unnecessary columns
-        data.drop(columns=['sum_rub', 'original_entry', 'prediction'], inplace=True, errors='ignore')
-
-        # Reorder columns
-        ordered_columns = ['receipt_id', 'unique_id', 'name', 'product_name', 'user_prediction', 
-                           'amount_unit', 'amount', 'unit', 'percentage', 'confidence']
-        data = data[ordered_columns]
-
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
-            temp_path = tmp.name
-            # Save the DataFrame to the temporary Excel file
-            data.to_excel(temp_path, sheet_name='Receipt', index=False)
-
-        # Create a filename for the Excel file
-        filename = f"receipt_{receipt_info['receipt_id']}.xlsx"
-
-        # Send the document
-        await bot.send_document(
-            chat_id=user_id,
-            document=FSInputFile(temp_path, filename=filename),
-            caption=f'Чек от {receipt_info["purchase_datetime"]}'
-        )
-
-        # Remove the temporary file
-        os.unlink(temp_path)
-
-    except Exception as e:
-        logging.error(f"Error sending Excel document: {str(e)}")
-        await bot.send_message(
-            chat_id=user_id,
-            text=f"Извините, произошла ошибка при создании Excel-файла: {str(e)}"
-        )
+# pending_receipts = {}
 
 async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
     """
@@ -577,15 +477,14 @@ async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
     try:
         with db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT minimal_confidence_for_prediction, add_to_history, return_excel_document FROM main_database WHERE user_id = ?", (user_id,))
+            cursor.execute("SELECT minimal_prediction_confidence, add_to_history FROM user_settings WHERE user_id = ?", (user_id,))
             user_data = cursor.fetchone()
             user_data = dict(user_data) if user_data else {} 
             unique_receipt_ids = cursor.execute("SELECT DISTINCT receipt_id FROM user_purchases WHERE user_id = ?", (user_id,)).fetchall()
         
         unique_receipt_ids = {row[0] for row in unique_receipt_ids}
-        min_confidence = user_data.get('minimal_confidence_for_prediction', 0.5)
+        min_confidence = user_data.get('minimal_prediction_confidence', 0.5)
         add_to_history_bool = user_data.get('add_to_history', False)        
-        return_excel_document = user_data.get('return_excel_document', False)
 
         items_data, receipt_info = parse_json(receipt_data)
         receipt_id = receipt_info.get('receipt_id')  # Now receipt_id is defined
@@ -599,9 +498,6 @@ async def process_receipt(receipt_data, user_id, user_folder, idx_info=""):
         with open(receipt_file_path, 'w') as f:
             json.dump(receipt_data, f, ensure_ascii=False, indent=4)
         # ===
-
-        if return_excel_document:
-                await send_excel_document(data, receipt_info, user_id)
         
         if receipt_id not in unique_receipt_ids:
             save_data_for_database(data, receipt_info, user_id)
@@ -638,7 +534,7 @@ async def handle_json_upload(message: Message):
 
     :param message: The message containing the file
     """
-    file_name = f'file_{datetime.now().strftime("%d_%m_%Y_%H_%M_%S")}.json'
+    file_name = f'file_{datetime.now().strftime("%d_%m_%Y_%H_%М_%S")}.json'
     user_id = message.from_user.id
     
     user_folder = os.path.join(DATABASE_PATH, f'user_{user_id}')
@@ -706,11 +602,11 @@ async def show_main_menu(message: Message, user_id=None):
         pass
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT minimal_confidence_for_prediction, add_to_history, return_excel_document FROM main_database WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT minimal_prediction_confidence, add_to_history, return_excel_document FROM user_settings WHERE user_id = ?", (user_id,))
         user_data = cursor.fetchone()
         user_data = dict(user_data) if user_data else {}
     
-    min_confidence = int(user_data.get('minimal_confidence_for_prediction', 0.5) * 100)
+    min_confidence = int(user_data.get('minimal_prediction_confidence', 0.5) * 100)
     add_to_history_emoji = '✅' if user_data.get('add_to_history', False) else '❌'
     return_excel_document = '✅' if user_data.get('return_excel_document', False) else '❌'
     keyboard = InlineKeyboardMarkup(
@@ -724,9 +620,6 @@ async def show_main_menu(message: Message, user_id=None):
             ],
             [
                 InlineKeyboardButton(text=f"📝 Добавлять в историю {add_to_history_emoji}", callback_data="menu_add_to_history"),
-            ],
-            [
-                InlineKeyboardButton(text=f" 📊 Получать Excel документ {return_excel_document}", callback_data="menu_return_excel_document"),
             ],
             [            
                 InlineKeyboardButton(text="📜 История покупок", callback_data="menu_history"),
@@ -771,8 +664,6 @@ async def handle_menu_callbacks(callback_query: CallbackQuery):
         await show_history_options(callback_query.message)
     elif data == "menu_add_to_history":
         await add_to_history(callback_query.message, user_id)
-    elif data == "menu_return_excel_document":
-        await set_return_excel_document(callback_query.message, user_id)
 
 # ======= History view =======
 
@@ -849,10 +740,13 @@ async def handle_user_profile(callback_query: CallbackQuery):
 
     with db_connection() as conn:        
         cursor = conn.cursor()
+        # Get user data from both users and user_settings tables
         cursor.execute("""
-            SELECT user_id, user_name, registration_date, add_to_history, original_receipts_added, products_added, minimal_confidence_for_prediction
-            FROM main_database
-            WHERE user_id = ?
+            SELECT u.user_id, u.user_name, u.registration_date, u.original_receipts_added,
+                   u.products_added, us.add_to_history, us.minimal_prediction_confidence
+            FROM users u
+            JOIN user_settings us ON u.user_id = us.user_id
+            WHERE u.user_id = ?
         """, (user_id,))
         user_data = cursor.fetchone()
         user_data = dict(user_data) if user_data else {}
@@ -893,7 +787,7 @@ async def handle_user_profile(callback_query: CallbackQuery):
         f"💸 Всего денег потрачено: {int(total_sum)}₽\n\n"
 
         f"🕰️ Дата регистрации: {registration_date}\n"
-        f"💯 Минимальная уверенность модели: {int(user_data.get('minimal_confidence_for_prediction', 0.5)*100)}%"
+        f"💯 Минимальная уверенность модели: {int(user_data.get('minimal_prediction_confidence', 0.5)*100)}%"
     )
     
     back_button = create_back_button(text="К истории покупок", callback_data="back_to_history_delete")
@@ -922,8 +816,8 @@ async def display_receipts(user_id, message, receipts, page=0):
 
     for i in range(start_index, end_index):
         receipt = receipts[i]
-        date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d %H:%M:%S')
-        display_date = date.strftime('%d.%m.%Y %H:%M')
+        date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d %H:%М:%S')
+        display_date = date.strftime('%d.%m.%Y %H:%М')
         keyboard.append([InlineKeyboardButton(text=f"Чек от {display_date}", callback_data=f"display_receipts_receipt_{receipt['receipt_id']}")])
 
     nav_buttons = []
@@ -1053,7 +947,7 @@ async def display_single_receipt(user_id: int, receipt_id: str):
         """, (receipt_id,))
         receipt = cursor.fetchone()
 
-    items = [f'{i}. "{item["name"]}" - {item["quantity"]} - {item["user_prediction"]} ({int(item["confidence"]*100)})%' for i, item in enumerate(receipt_items, start=1)]
+    items = [f'{i}. "{item["product_name"]}" - {item["quantity"]} - {item["user_prediction"]} ({int(item["confidence"]*100)})%' for i, item in enumerate(receipt_items, start=1)]
     message = (f'{receipt["purchase_datetime"]} - {receipt["total_sum"]}₽\n'
                'Продукты:\n\n')
     message += '\n'.join(items)
@@ -1106,16 +1000,15 @@ async def display_categories(user_id, message, product_counts, undetected_catego
             reply_markup=markup
         )
     else:
-        sent_message = await bot.send_message(
+        await bot.send_message(
             chat_id=user_id,
             text="Выберите категорию для просмотра источников:",
             reply_markup=markup
         )
-        user_messages_categories[user_id] = [sent_message.message_id]
 
     return markup
 
-@dp.callback_query(lambda c: c.data and c.data.startswith("history_categories"))
+@dp.callback_query(lambda c: c.data and c.data == "history_categories")
 async def handle_display_categories(callback_query: CallbackQuery):
     """
     Handles the callback query with the "history_categories" data.
