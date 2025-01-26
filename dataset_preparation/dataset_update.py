@@ -2,31 +2,46 @@ from utils.parser import Parser
 import pandas as pd
 import os
 from config.config import DATASETS_FOLDER
-from utils.db_utils import db_connection
+from utils.db_utils import get_connection, ReceiptItems  # Updated imports
+from sqlalchemy import func
 
 def load_dynamic_dataset(saving_path:str = None):
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT *
-            FROM (
-                SELECT
-                    *,
-                    ROW_NUMBER() OVER (PARTITION BY name ORDER BY name) AS rn
-                FROM receipt_items
-            ) sub
-            WHERE rn = 1
-            ORDER BY name
-            """
-        )
-        all_items = cursor.fetchall()
-    df = pd.DataFrame([dict(row) for row in all_items])
-    df.drop(columns=['item_id', 'receipt_id', 'user_id', 'quantity'], inplace=True)
-    df = df[['original_entry', 'percentage', 'amount', 'product_name', 'name', 'prediction', 'portion']]
-    df.rename(columns={'prediction': 'clear_name', 'name':'original_name'}, inplace=True)
-    if saving_path:
-        df.to_csv(saving_path, sep='|', index=False)
-    return df
+    """Load unique receipt items using SQLAlchemy."""
+    with get_connection() as session:
+        # Get unique items based on name, using window function in subquery
+        subquery = session.query(
+            ReceiptItems,
+            func.row_number().over(
+                partition_by=ReceiptItems.product_name,
+                order_by=ReceiptItems.product_name
+            ).label('rn')
+        ).subquery()
+
+        # Query only first occurrence of each name
+        all_items = session.query(subquery).filter(
+            subquery.c.rn == 1
+        ).order_by(subquery.c.product_name).all()
+
+        # Convert to DataFrame and process
+        df = pd.DataFrame([{
+            'original_entry': item.original_entry,
+            'percentage': item.percentage,
+            'amount': item.amount,
+            'product_name': item.product_name,
+            'name': item.product_name,  # original_name
+            'prediction': item.prediction,  # clear_name
+            'portion': item.portion
+        } for item in all_items])
+
+        # Rename columns to match expected format
+        df.rename(columns={
+            'prediction': 'clear_name',
+            'name': 'original_name'
+        }, inplace=True)
+
+        if saving_path:
+            df.to_csv(saving_path, sep='|', index=False)
+        return df
 
 def update_dataset(new_data_path: str, main_data_path: str, updated_data_path: str):
     """Updates the main dataset with new data, ensuring no duplicates."""

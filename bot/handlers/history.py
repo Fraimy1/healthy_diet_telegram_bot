@@ -4,10 +4,13 @@ from aiogram import F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.bot_init import bot, dp
-from utils.db_utils import db_connection
+from utils.db_utils import (
+    get_connection, UserSettings, UserPurchases, 
+    ReceiptItems
+)  # Updated imports
 from utils.utils import create_back_button
 from utils.data_processor import get_sorted_user_receipts, count_product_amounts
-from bot.handlers.menu_utils import show_menu_to_user  # Change this line
+from bot.handlers.menu_utils import show_menu_to_user
 from utils.logger import logger
 
 # Track messages for categories display
@@ -70,28 +73,24 @@ async def add_to_history(message: Message, user_id=None):
     """Toggle add_to_history setting for user."""
     user_id = user_id if user_id else message.from_user.id 
 
-    # Toggle setting in database
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT add_to_history FROM user_settings WHERE user_id = ?", 
-            (user_id,)
-        )
-        add_to_history_value = not cursor.fetchone()[0]
-        cursor.execute(
-            "UPDATE user_settings SET add_to_history = ? WHERE user_id = ?", 
-            (add_to_history_value, user_id)
-        )
-        conn.commit()
+    try:
+        with get_connection() as session:
+            user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
+            if user_settings:
+                user_settings.add_to_history = not user_settings.add_to_history
+                add_to_history_value = user_settings.add_to_history
 
-    # Send confirmation message
-    back_button = create_back_button(text="Главное меню", callback_data="main_menu")
-    status = "включено" if add_to_history_value else "отключено"
-    emoji = "✅" if add_to_history_value else "❌"
-    await message.answer(
-        f"{emoji} Добавление чеков в вашу историю {status}.", 
-        reply_markup=back_button
-    )
+                # Send confirmation message
+                back_button = create_back_button(text="Главное меню", callback_data="main_menu")
+                status = "включено" if add_to_history_value else "отключено"
+                emoji = "✅" if add_to_history_value else "❌"
+                await message.answer(
+                    f"{emoji} Добавление чеков в вашу историю {status}.", 
+                    reply_markup=back_button
+                )
+    except Exception as e:
+        logger.error(f"Failed to toggle add_to_history for user {user_id}: {e}")
+        raise
 
 # Receipt display functions
 async def display_receipts(user_id, message, receipts, page=0):
@@ -105,8 +104,8 @@ async def display_receipts(user_id, message, receipts, page=0):
         # Add receipt buttons
         for i in range(start_index, end_index):
             receipt = receipts[i]
-            date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d %H:%M:%S')  # Fixed format specifier
-            display_date = date.strftime('%d.%m.%Y %H:%M')
+            # The purchase_datetime is already a datetime object, no need to parse
+            display_date = receipt['purchase_datetime'].strftime('%d.%m.%Y %H:%M')
             keyboard.append([
                 InlineKeyboardButton(
                     text=f"Чек от {display_date}", 
@@ -207,37 +206,33 @@ async def handle_display_receipts(callback_query: CallbackQuery):
 
 async def display_single_receipt(user_id: int, receipt_id: str):
     """Display details of a single receipt."""
-    with db_connection() as conn:
-        cursor = conn.cursor()
+    with get_connection() as session:
         # Get receipt items
-        cursor.execute("""
-            SELECT *
-            FROM receipt_items
-            WHERE receipt_id = ?
-        """, (receipt_id,))
-        receipt_items = cursor.fetchall()
+        receipt_items = session.query(ReceiptItems).filter(
+            ReceiptItems.receipt_id == receipt_id
+        ).all()
 
         # Get receipt info
-        cursor.execute("""
-            SELECT *
-            FROM user_purchases
-            WHERE receipt_id = ?
-        """, (receipt_id,))
-        receipt = cursor.fetchone()
+        receipt = session.query(UserPurchases).filter(
+            UserPurchases.receipt_id == receipt_id
+        ).first()
 
-    # Format receipt items
-    items = [
-        f'{i}. "{item["product_name"]}" - {item["quantity"]} - '
-        f'{item["user_prediction"]} ({int(item["confidence"]*100)})%'
-        for i, item in enumerate(receipt_items, start=1)
-    ]
+        if not receipt or not receipt_items:
+            return
 
-    # Create message
-    message = (
-        f'{receipt["purchase_datetime"]} - {receipt["total_sum"]}₽\n'
-        'Продукты:\n\n' + 
-        '\n'.join(items)
-    )
+        # Format receipt items
+        items = [
+            f'{i}. "{item.product_name}" - {item.quantity} - '
+            f'{item.user_prediction} ({int(item.confidence*100)})%'
+            for i, item in enumerate(receipt_items, start=1)
+        ]
 
-    back_button = create_back_button(text="Назад", callback_data="history_receipts")
-    await bot.send_message(user_id, message, reply_markup=back_button)
+        # Create message
+        message = (
+            f'{receipt.purchase_datetime} - {receipt.total_sum}₽\n'
+            'Продукты:\n\n' + 
+            '\n'.join(items)
+        )
+
+        back_button = create_back_button(text="Назад", callback_data="history_receipts")
+        await bot.send_message(user_id, message, reply_markup=back_button)
