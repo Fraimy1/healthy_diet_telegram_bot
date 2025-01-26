@@ -1,7 +1,11 @@
 from aiogram.types import CallbackQuery
+from sqlalchemy import func, and_
 
 from bot.bot_init import bot, dp
-from utils.db_utils import db_connection
+from utils.db_utils import (
+    get_connection, Users, UserSettings, 
+    UserPurchases
+)  # Updated imports
 from utils.utils import create_back_button
 
 @dp.callback_query(lambda c: c.data == "history_user_profile")
@@ -28,43 +32,61 @@ async def handle_user_profile(callback_query: CallbackQuery):
     await bot.send_message(user_id, statistics, reply_markup=back_button)
 
 async def get_user_statistics(user_id: int) -> dict:
-    """Get user statistics from database."""
-    with db_connection() as conn:        
-        cursor = conn.cursor()
+    """Get user statistics from database using SQLAlchemy."""
+    with get_connection() as session:
         # Get user data from both users and user_settings tables
-        cursor.execute("""
-            SELECT u.user_id, u.user_name, u.registration_date, u.original_receipts_added,
-                   u.products_added, us.add_to_history, us.minimal_prediction_confidence
-            FROM users u
-            JOIN user_settings us ON u.user_id = us.user_id
-            WHERE u.user_id = ?
-        """, (user_id,))
-        user_data = dict(cursor.fetchone() or {})
+        user_data = session.query(
+            Users, UserSettings
+        ).join(
+            UserSettings, Users.user_id == UserSettings.user_id
+        ).filter(
+            Users.user_id == user_id
+        ).first()
 
-        # Get receipt counts
-        cursor.execute("""
-            SELECT COUNT(DISTINCT receipt_id) 
-            FROM user_purchases
-            WHERE user_id = ?
-        """, (user_id,))
-        user_data['total_receipts'] = cursor.fetchone()['COUNT(DISTINCT receipt_id)']
+        if not user_data:
+            return {}
 
-        cursor.execute("""
-            SELECT COUNT(DISTINCT receipt_id) 
-            FROM user_purchases
-            WHERE user_id = ? AND in_history = 1
-        """, (user_id,))
-        user_data['history_receipts'] = cursor.fetchone()['COUNT(DISTINCT receipt_id)']
+        user, settings = user_data
+
+        # Get total receipts count
+        total_receipts = session.query(
+            func.count(func.distinct(UserPurchases.receipt_id))
+        ).filter(
+            UserPurchases.user_id == user_id
+        ).scalar() or 0
+
+        # Get history receipts count
+        history_receipts = session.query(
+            func.count(func.distinct(UserPurchases.receipt_id))
+        ).filter(
+            and_(
+                UserPurchases.user_id == user_id,
+                UserPurchases.in_history == True
+            )
+        ).scalar() or 0
 
         # Get total spending
-        cursor.execute("""
-            SELECT SUM(total_sum) 
-            FROM user_purchases
-            WHERE user_id = ? AND in_history = 1
-        """, (user_id,))
-        user_data['total_spending'] = cursor.fetchone()['SUM(total_sum)'] or 0
+        total_spending = session.query(
+            func.sum(UserPurchases.total_sum)
+        ).filter(
+            and_(
+                UserPurchases.user_id == user_id,
+                UserPurchases.in_history == True
+            )
+        ).scalar() or 0
 
-    return user_data
+        return {
+            'user_id': user.user_id,
+            'user_name': user.user_name,
+            'registration_date': user.registration_date,
+            'original_receipts_added': user.original_receipts_added,
+            'products_added': user.products_added,
+            'add_to_history': settings.add_to_history,
+            'minimal_prediction_confidence': settings.minimal_prediction_confidence,
+            'total_receipts': total_receipts,
+            'history_receipts': history_receipts,
+            'total_spending': total_spending
+        }
 
 def format_statistics_message(stats: dict) -> str:
     """Format user statistics into a readable message."""

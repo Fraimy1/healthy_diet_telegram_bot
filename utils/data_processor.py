@@ -3,9 +3,11 @@ import numpy as np
 from datetime import datetime
 from config.config import DATABASE_PATH, ABBREVIATION_MICROELEMENTS_DICT
 from utils.parser import Parser
-from utils.db_utils import db_connection
+from utils.db_utils import (
+    get_connection, UserPurchases, ReceiptItems,
+    UserSettings, DefaultAmounts
+)
 import os
-import sqlite3
 import uuid
 
 parser = Parser()
@@ -105,139 +107,111 @@ def predict_product_categories(items_data, bert_2level_model, le, min_confidence
 
 def save_data_for_database(new_data, receipt_info, user_id):
     """
-    Saves the processed receipt data into the SQLite database.
+    Saves the processed receipt data into the database using SQLAlchemy.
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-
+    with get_connection() as session:
         # Get user settings
-        user_settings = cursor.execute(
-            "SELECT add_to_history FROM user_settings WHERE user_id = ?", 
-            (user_id,)
-        ).fetchone()
+        user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
         
         if user_settings is None:
             print(f"User with ID {user_id} not found in the database.")
             return
 
         try:
-            # Insert the receipt into user_purchases table
-            try:
-                cursor.execute("""
-                    INSERT INTO user_purchases (
-                        receipt_id, user_id, purchase_datetime, total_sum, in_history
-                    ) VALUES (:receipt_id, :user_id, :purchase_datetime, :total_sum, :in_history)
-                """, {
-                    'receipt_id': receipt_info['receipt_id'],
-                    'user_id': user_id,
-                    'purchase_datetime': datetime.strptime(receipt_info['purchase_datetime'], 
-                                                         '%Y-%m-%d_%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
-                    'total_sum': receipt_info['total_sum'],
-                    'in_history': user_settings['add_to_history']
-                })
-            except sqlite3.IntegrityError as e:
-                print(f"Skipping duplicate receipt {receipt_info['receipt_id']} due to: {e}")
-                return
+            # Create new purchase record
+            new_purchase = UserPurchases(
+                receipt_id=receipt_info['receipt_id'],
+                user_id=user_id,
+                purchase_datetime=datetime.strptime(
+                    receipt_info['purchase_datetime'],
+                    '%Y-%m-%d_%H:%M:%S'
+                ),
+                total_sum=receipt_info['total_sum'],
+                in_history=user_settings.add_to_history
+            )
+            session.add(new_purchase)
 
-            # Insert receipt items
+            # Add receipt items
             for _, row in new_data.iterrows():
-                try:
-                    cursor.execute("""
-                        INSERT INTO receipt_items (
-                            receipt_id, user_id, quantity, percentage, amount,
-                            product_name, portion, prediction, user_prediction,
-                            confidence, in_history
-                        ) VALUES (
-                            :receipt_id, :user_id, :quantity, :percentage, :amount,
-                            :product_name, :portion, :prediction, :user_prediction,
-                            :confidence, :in_history
-                        )
-                    """, {
-                        'receipt_id': receipt_info['receipt_id'],
-                        'user_id': user_id,
-                        'quantity': row.get('quantity', 1),
-                        'percentage': row.get('percentage', None),
-                        'amount': row.get('amount', None),
-                        'product_name': row.get('name', None),  # Original name from receipt
-                        'portion': row.get('portion', None),
-                        'prediction': row.get('prediction', None),
-                        'user_prediction': row.get('user_prediction', None),
-                        'confidence': row.get('confidence', 0.0),
-                        'in_history': user_settings['add_to_history']
-                    })
-                except sqlite3.IntegrityError as e:
-                    print(f"Skipping duplicate item {row['name']} for receipt {receipt_info['receipt_id']} due to: {e}")
+                new_item = ReceiptItems(
+                    receipt_id=receipt_info['receipt_id'],
+                    user_id=user_id,
+                    quantity=row.get('quantity', 1),
+                    percentage=row.get('percentage'),
+                    amount=row.get('amount'),
+                    product_name=row.get('name'),  # Original name from receipt
+                    portion=row.get('portion'),
+                    prediction=row.get('prediction'),
+                    user_prediction=row.get('user_prediction'),
+                    confidence=row.get('confidence', 0.0),
+                    in_history=user_settings.add_to_history
+                )
+                session.add(new_item)
 
-            conn.commit()
             print(f"Receipt {receipt_info['receipt_id']} saved successfully.")
-        except sqlite3.Error as e:
+        except Exception as e:
             print(f"An error occurred while saving receipt {receipt_info['receipt_id']}: {e}")
-            conn.rollback()
+            raise
 
 def get_sorted_user_receipts(user_id):
     """
-    Sorts a user's receipts by their purchase date in descending order from the SQLite database.
-
-    Args:
-        user_id (int): The user ID to get the receipts for.
-
-    Returns:
-        list: A sorted list of the user's receipts, each represented as a dictionary.
+    Sorts a user's receipts by their purchase date in descending order using SQLAlchemy.
     """
-    # Using context manager for DB connection
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        # Fetch receipts for the user, ordered by purchase_datetime descending
-        cursor.execute("""
-            SELECT receipt_id, user_id, purchase_datetime, total_sum, in_history
-            FROM user_purchases
-            WHERE user_id = ? AND in_history = 1
-            ORDER BY purchase_datetime DESC
-        """, (user_id,))
-
-        rows = cursor.fetchall()
-
-    # Convert sqlite3.Row objects to dictionaries
-    receipts = [dict(row) for row in rows]
-    return receipts
+    with get_connection() as session:
+        receipts = session.query(UserPurchases).filter(
+            UserPurchases.user_id == user_id,
+            UserPurchases.in_history == True
+        ).order_by(UserPurchases.purchase_datetime.desc()).all()
+        
+        # Convert SQLAlchemy objects to dictionaries
+        return [
+            {
+                'receipt_id': r.receipt_id,
+                'user_id': r.user_id,
+                'purchase_datetime': r.purchase_datetime,
+                'total_sum': r.total_sum,
+                'in_history': r.in_history
+            }
+            for r in receipts
+        ]
 
 def count_product_amounts(user_id):
     """
-    Counts the total amount of each product in a user's purchases.
+    Counts the total amount of each product in a user's purchases using SQLAlchemy.
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
+    with get_connection() as session:
+        # Get default amounts
+        default_amounts_query = session.query(DefaultAmounts)
+        default_amounts = {
+            row.item_name: row.item_amount 
+            for row in default_amounts_query.all()
+        }
 
-        # Retrieve default_amounts - note the new column name item_amount
-        cursor.execute("""
-            SELECT item_name, item_amount
-            FROM default_amounts
-        """)
-        default_amounts_data = cursor.fetchall()
-        default_amounts = {row['item_name']: row['item_amount'] for row in default_amounts_data}
-
-        # Retrieve all items for this user
-        cursor.execute("""
-            SELECT 
-                ri.product_name,
-                ri.quantity, 
-                ri.amount, 
-                ri.user_prediction, 
-                up.receipt_id                
-            FROM user_purchases up
-            JOIN receipt_items ri ON up.receipt_id = ri.receipt_id
-            WHERE up.user_id = ? AND up.in_history = 1
-        """, (user_id,))
-        items_data = cursor.fetchall()
+        # Get all items for this user
+        items_query = session.query(
+            ReceiptItems.product_name,
+            ReceiptItems.quantity,
+            ReceiptItems.amount,
+            ReceiptItems.user_prediction,
+            ReceiptItems.receipt_id
+        ).join(
+            UserPurchases,
+            UserPurchases.receipt_id == ReceiptItems.receipt_id
+        ).filter(
+            UserPurchases.user_id == user_id,
+            UserPurchases.in_history == True
+        )
+        
+        items_data = items_query.all()
 
     product_counts = {}
     undetected_categories = {}
 
     for row in items_data:
-        product_name = row['product_name']  # Changed from row['name']
-        user_prediction = (row['user_prediction'] or '').strip()
-        quantity = row['quantity'] if row['quantity'] is not None else 1
-        amount_str = row['amount']
+        product_name = row.product_name
+        user_prediction = (row.user_prediction or '').strip()
+        quantity = row.quantity if row.quantity is not None else 1
+        amount_str = row.amount
 
         # Skip items predicted as несъедобное (inedible)
         if user_prediction == 'несъедобное':

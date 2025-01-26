@@ -2,121 +2,90 @@ import os
 import json
 from datetime import datetime
 import re
-import sqlite3
 from config.config import DATABASE_PATH, DATABASE_FILE_PATH
-from utils.db_utils import db_connection
+from utils.db_utils import (
+    get_connection, Users, UserSettings,
+    UserPurchases, ReceiptItems
+)  # Updated imports
+from sqlalchemy import func
 from aiogram.types import (
-InlineKeyboardMarkup,
-InlineKeyboardButton
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
 )
 
 def create_user_profile(user_id: int, username: str) -> None:
-    """
-    Creates a new user profile in the SQLite database with default values.
-    Adds entries in both users and user_settings tables.
-    """
+    """Creates a new user profile using SQLAlchemy with default values."""
     username = sanitize_username(username) if username else None
     registration_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    with db_connection() as conn:
-        cursor = conn.cursor()
-
-        try:
-            # Insert into users table
-            cursor.execute("""
-                INSERT INTO users (
-                    user_id, user_name, registration_date,
-                    original_receipts_added, products_added, household_id
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                user_id,
-                username,
-                registration_date,
-                0,  # original_receipts_added
-                0,  # products_added
-                None  # household_id
-            ))
-
-            # Insert into user_settings table
-            cursor.execute("""
-                INSERT INTO user_settings (
-                    user_id, add_to_history, minimal_prediction_confidence
-                ) VALUES (?, ?, ?)
-            """, (
-                user_id,
-                True,  # add_to_history default
-                0.5    # minimal_prediction_confidence default
-            ))
-
-            conn.commit()
-            print(f"User profile for user_id {user_id} created successfully in the database.")
-
-        except sqlite3.IntegrityError:
+    with get_connection() as session:
+        # Check if user exists
+        existing_user = session.query(Users).filter_by(user_id=user_id).first()
+        if existing_user:
             print(f"User with ID {user_id} already exists in the database. No changes made.")
             return
 
-def update_user_contributions(user_id: int, conn: sqlite3.Connection):
-    cursor = conn.cursor()
+        # Create new user
+        new_user = Users(
+            user_id=user_id,
+            user_name=username,
+            registration_date=registration_date,
+            original_receipts_added=0,
+            products_added=0,
+            household_id=None
+        )
 
-    # First, get all receipts for the user with their timestamps
-    cursor.execute("""
-        SELECT receipt_id, purchase_datetime
-        FROM user_purchases
-        WHERE user_id = ?
-    """, (user_id,))
-    user_receipts = cursor.fetchall()
+        # Create user settings
+        new_settings = UserSettings(
+            user_id=user_id,
+            add_to_history=True,
+            minimal_prediction_confidence=0.5,
+            return_excel_document=False
+        )
 
-    if not user_receipts:
-        # No receipts, just update to zero
-        cursor.execute("""
-            UPDATE users 
-            SET original_receipts_added = 0, products_added = 0
-            WHERE user_id = ?
-        """, (user_id,))
-        return
+        session.add(new_user)
+        session.add(new_settings)
+        print(f"User profile for user_id {user_id} created successfully in the database.")
 
-    unique_receipts = []
-    for row in user_receipts:
-        user_receipt_id = row['receipt_id']
-        user_purchase_time = row['purchase_datetime']
+def update_user_contributions(user_id: int):
+    """Update user contribution counts using SQLAlchemy."""
+    with get_connection() as session:
+        # Get all user receipts ordered by datetime
+        user_receipts_subq = session.query(
+            UserPurchases.receipt_id,
+            func.min(UserPurchases.purchase_datetime).label('first_purchase_time')
+        ).group_by(
+            UserPurchases.receipt_id
+        ).subquery()
 
-        # Find the earliest user who added this receipt
-        cursor.execute("""
-            SELECT user_id, purchase_datetime
-            FROM user_purchases
-            WHERE receipt_id = ?
-            ORDER BY purchase_datetime ASC
-            LIMIT 1
-        """, (user_receipt_id,))
-        earliest = cursor.fetchone()
-        
-        # If current user is the earliest contributor for this receipt
-        if earliest and earliest['user_id'] == user_id:
-            unique_receipts.append(user_receipt_id)
+        # Find receipts where this user was first
+        unique_receipts = session.query(
+            UserPurchases.receipt_id
+        ).join(
+            user_receipts_subq,
+            UserPurchases.receipt_id == user_receipts_subq.c.receipt_id
+        ).filter(
+            UserPurchases.user_id == user_id,
+            UserPurchases.purchase_datetime == user_receipts_subq.c.first_purchase_time
+        ).all()
 
-    # original_receipts_added is the count of unique receipts
-    original_receipts_added = len(unique_receipts)
+        unique_receipt_ids = [r[0] for r in unique_receipts]
+        original_receipts_added = len(unique_receipt_ids)
 
-    # Count products from these unique receipts
-    if unique_receipts:
-        query = f"""
-            SELECT COUNT(*) as product_count
-            FROM receipt_items
-            WHERE user_id = ?
-            AND receipt_id IN ({','.join(['?']*len(unique_receipts))})
-        """
-        params = [user_id] + unique_receipts
-        cursor.execute(query, params)
-        products_count = cursor.fetchone()['product_count']
-    else:
-        products_count = 0
+        # Count products from unique receipts
+        if unique_receipt_ids:
+            products_count = session.query(func.count(ReceiptItems.item_id)).filter(
+                ReceiptItems.user_id == user_id,
+                ReceiptItems.receipt_id.in_(unique_receipt_ids)
+            ).scalar()
+        else:
+            products_count = 0
 
-    # Update the users table with new values
-    cursor.execute("""
-        UPDATE users 
-        SET original_receipts_added = ?, products_added = ?
-        WHERE user_id = ?
-    """, (original_receipts_added, products_count, user_id))
+        # Update user record
+        user = session.query(Users).filter_by(user_id=user_id).first()
+        if user:
+            user.original_receipts_added = original_receipts_added
+            user.products_added = products_count
 
 def sanitize_username(username):
     """

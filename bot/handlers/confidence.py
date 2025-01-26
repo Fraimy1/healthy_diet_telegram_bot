@@ -2,9 +2,9 @@ from aiogram import F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.bot_init import bot, dp
-from utils.db_utils import db_connection
+from utils.db_utils import get_connection, UserSettings  # Updated import
 from utils.utils import create_back_button
-from bot.handlers.menu_utils import show_menu_to_user  # Change this line
+from bot.handlers.menu_utils import show_menu_to_user
 from utils.logger import logger
 
 # Store message IDs for cleanup
@@ -104,17 +104,14 @@ async def cleanup_confidence_messages(user_id: int):
     set_confidence_markup_queue.pop(user_id, None)
 
 async def update_confidence_threshold(user_id: int, confidence_value: float):
-    """Update user's confidence threshold in database."""
+    """Update user's confidence threshold in database using SQLAlchemy."""
     logger.info(f"Updating confidence threshold for user {user_id} to {confidence_value}")
     try:
-        with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE user_settings SET minimal_prediction_confidence = ? WHERE user_id = ?",
-                (confidence_value, user_id)
-            )
-            conn.commit()
-        logger.debug(f"Successfully updated confidence for user {user_id}")
+        with get_connection() as session:
+            user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
+            if user_settings:
+                user_settings.minimal_prediction_confidence = confidence_value
+            logger.debug(f"Successfully updated confidence for user {user_id}")
     except Exception as e:
         logger.error(f"Failed to update confidence for user {user_id}: {e}")
         raise
