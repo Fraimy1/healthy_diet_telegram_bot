@@ -5,6 +5,7 @@ from bot.bot_init import bot, dp
 from utils.db_utils import db_connection
 from utils.utils import create_back_button
 from bot.handlers.menu_utils import show_menu_to_user  # Change this line
+from utils.logger import logger
 
 # Store message IDs for cleanup
 set_confidence_markup_queue = {}
@@ -18,6 +19,7 @@ async def set_confidence(message: Message, user_id=None):
     Stores message IDs for later cleanup.
     """
     user_id = user_id if user_id else message.from_user.id 
+    logger.info(f"User {user_id} initiated confidence setting")
     
     # Send explanation message
     first_message = await message.answer(
@@ -103,10 +105,16 @@ async def cleanup_confidence_messages(user_id: int):
 
 async def update_confidence_threshold(user_id: int, confidence_value: float):
     """Update user's confidence threshold in database."""
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE user_settings SET minimal_prediction_confidence = ? WHERE user_id = ?",
-            (confidence_value, user_id)
-        )
-        conn.commit()
+    logger.info(f"Updating confidence threshold for user {user_id} to {confidence_value}")
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE user_settings SET minimal_prediction_confidence = ? WHERE user_id = ?",
+                (confidence_value, user_id)
+            )
+            conn.commit()
+        logger.debug(f"Successfully updated confidence for user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to update confidence for user {user_id}: {e}")
+        raise

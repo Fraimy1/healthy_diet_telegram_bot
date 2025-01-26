@@ -4,68 +4,76 @@ from bot.bot_init import bot, dp, MICROELEMENTS_TABLE
 from utils.utils import create_back_button
 from utils.data_processor import get_microelements_data
 from config.config import ABBREVIATION_MICROELEMENTS_DICT
+from utils.logger import logger
 
 async def display_microelements(user_id, message, microelements_data, page=0):
     """Display paginated list of microelements with their amounts."""
-    keyboard = []
-    microelements_list = list(microelements_data.items())
-    start_index = page * 7
-    end_index = min(start_index+7, len(microelements_list))
+    logger.debug(f"Starting microelements display for user {user_id} on page {page}")
+    try:
+        keyboard = []
+        microelements_list = list(microelements_data.items())
+        start_index = page * 7
+        end_index = min(start_index+7, len(microelements_list))
 
-    # Add microelement buttons
-    for i in range(start_index, end_index):
-        element, data = microelements_list[i]
-        total_amount = data['total_amount']
-        unit = 'Ккал' if element == ABBREVIATION_MICROELEMENTS_DICT["эц"] else 'г'
+        # Add microelement buttons
+        for i in range(start_index, end_index):
+            element, data = microelements_list[i]
+            total_amount = data['total_amount']
+            unit = 'Ккал' if element == ABBREVIATION_MICROELEMENTS_DICT["эц"] else 'г'
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"{element}: {total_amount:.2f} {unit}", 
+                    callback_data=f"display_microelements_element_{i}"
+                )
+            ])
+
+        # Add navigation buttons
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton(
+                text="⬅️ Назад", 
+                callback_data=f"display_microelements_page_{page-1}"
+            ))
+        if end_index < len(microelements_list):
+            nav_buttons.append(InlineKeyboardButton(
+                text="Вперед ➡️", 
+                callback_data=f"display_microelements_page_{page+1}"
+            ))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+
+        # Add back button
         keyboard.append([
             InlineKeyboardButton(
-                text=f"{element}: {total_amount:.2f} {unit}", 
-                callback_data=f"display_microelements_element_{i}"
+                text="К истории покупок", 
+                callback_data="back_to_history_delete"
             )
         ])
 
-    # Add navigation buttons
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton(
-            text="⬅️ Назад", 
-            callback_data=f"display_microelements_page_{page-1}"
-        ))
-    if end_index < len(microelements_list):
-        nav_buttons.append(InlineKeyboardButton(
-            text="Вперед ➡️", 
-            callback_data=f"display_microelements_page_{page+1}"
-        ))
-    if nav_buttons:
-        keyboard.append(nav_buttons)
+        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        text = "Выберите микроэлемент для просмотра источников:"
 
-    # Add back button
-    keyboard.append([
-        InlineKeyboardButton(
-            text="К истории покупок", 
-            callback_data="back_to_history_delete"
-        )
-    ])
-
-    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    text = "Выберите микроэлемент для просмотра источников:"
-
-    try:
-        if message.message_id:
-            await bot.edit_message_text(
-                chat_id=user_id,
-                message_id=message.message_id,
-                text=text,
-                reply_markup=markup
-            )
-        else:
-            await bot.send_message(
-                chat_id=user_id,
-                text=text,
-                reply_markup=markup
-            )
+        try:
+            if message.message_id:
+                await bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=message.message_id,
+                    text=text,
+                    reply_markup=markup
+                )
+            else:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=text,
+                    reply_markup=markup
+                )
+            logger.info(f"Successfully displayed microelements page {page} to user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to display microelements for user {user_id}: {e}")
+            raise
     except Exception as e:
-        print(f"Error displaying microelements: {e}")
+        logger.error(f"Failed to display microelements for user {user_id}: {str(e)}", exc_info=True)
+        raise
 
 @dp.callback_query(lambda c: c.data and c.data.startswith("history_microelements"))
 async def handle_display_microelements(callback_query: CallbackQuery):
@@ -160,6 +168,7 @@ async def send_microelement_sources(
     original_message
 ):
     """Send microelement sources, splitting into chunks if needed."""
+    logger.debug(f"Sending microelement sources for user {user_id}")
     try:
         if len(sources_text) < 4096:
             await bot.edit_message_text(
@@ -168,8 +177,10 @@ async def send_microelement_sources(
                 text=sources_text,
                 reply_markup=back_button
             )
+            logger.debug(f"Sent single message with sources to user {user_id}")
         else:
             chunks = split_message_into_chunks(sources_text)
+            logger.debug(f"Splitting sources into {len(chunks)} chunks for user {user_id}")
             for i, chunk in enumerate(chunks):
                 if i == 0:
                     await bot.edit_message_text(
@@ -188,8 +199,10 @@ async def send_microelement_sources(
                         chat_id=user_id,
                         text=chunk
                     )
+        logger.info(f"Successfully sent microelement sources to user {user_id}")
     except Exception as e:
-        print(f"Error sending microelement sources: {e}")
+        logger.error(f"Failed to send microelement sources to user {user_id}: {str(e)}", exc_info=True)
+        raise
 
 def split_message_into_chunks(text: str, chunk_size: int = 4096) -> list:
     """Split long messages into Telegram-friendly chunks."""

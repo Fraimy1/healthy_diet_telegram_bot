@@ -8,6 +8,7 @@ from utils.db_utils import db_connection
 from utils.utils import create_back_button
 from utils.data_processor import get_sorted_user_receipts, count_product_amounts
 from bot.handlers.menu_utils import show_menu_to_user  # Change this line
+from utils.logger import logger
 
 # Track messages for categories display
 user_messages_categories = defaultdict(list)
@@ -15,24 +16,31 @@ user_messages_categories = defaultdict(list)
 @dp.message(F.text.startswith('/show_history'))
 async def show_history_options(message: Message):
     """Display main history menu with options."""
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🧾 Чеки", callback_data="history_receipts"),
-                InlineKeyboardButton(text="📊 Профиль", callback_data="history_user_profile"),
-            ],
-            [
-                InlineKeyboardButton(text="🍎 Категории продуктов", callback_data="history_categories"),
-            ],
-            [
-                InlineKeyboardButton(text="💊 Микроэлементы", callback_data="history_microelements"),
-            ],
-            [
-                InlineKeyboardButton(text="🚪 Выйти", callback_data="history_main_menu"),
+    user_id = message.from_user.id
+    logger.info(f"User {user_id} accessed history menu")
+    try:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🧾 Чеки", callback_data="history_receipts"),
+                    InlineKeyboardButton(text="📊 Профиль", callback_data="history_user_profile"),
+                ],
+                [
+                    InlineKeyboardButton(text="🍎 Категории продуктов", callback_data="history_categories"),
+                ],
+                [
+                    InlineKeyboardButton(text="💊 Микроэлементы", callback_data="history_microelements"),
+                ],
+                [
+                    InlineKeyboardButton(text="🚪 Выйти", callback_data="history_main_menu"),
+                ]
             ]
-        ]
-    )  
-    await message.answer('📜 История покупок', reply_markup=keyboard)
+        )  
+        await message.answer('📜 История покупок', reply_markup=keyboard)
+        logger.debug(f"Successfully displayed history menu to user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to show history menu to user {user_id}: {str(e)}", exc_info=True)
+        raise
 
 @dp.callback_query(lambda c: c.data and c.data.endswith("main_menu"))
 async def handle_history_quit(callback_query: CallbackQuery):
@@ -88,65 +96,74 @@ async def add_to_history(message: Message, user_id=None):
 # Receipt display functions
 async def display_receipts(user_id, message, receipts, page=0):
     """Display paginated list of receipts."""
-    keyboard = []
-    start_index = page * 7
-    end_index = min(start_index + 7, len(receipts))
+    logger.debug(f"Displaying receipts page {page} for user {user_id}")
+    try:
+        keyboard = []
+        start_index = page * 7
+        end_index = min(start_index + 7, len(receipts))
 
-    # Add receipt buttons
-    for i in range(start_index, end_index):
-        receipt = receipts[i]
-        date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d %H:%M:%S')  # Fixed format specifier
-        display_date = date.strftime('%d.%m.%Y %H:%M')
-        keyboard.append([
-            InlineKeyboardButton(
-                text=f"Чек от {display_date}", 
-                callback_data=f"display_receipts_receipt_{receipt['receipt_id']}"
+        # Add receipt buttons
+        for i in range(start_index, end_index):
+            receipt = receipts[i]
+            date = datetime.strptime(receipt['purchase_datetime'], '%Y-%m-%d %H:%M:%S')  # Fixed format specifier
+            display_date = date.strftime('%d.%m.%Y %H:%M')
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"Чек от {display_date}", 
+                    callback_data=f"display_receipts_receipt_{receipt['receipt_id']}"
+                )
+            ])
+
+        # Add navigation buttons
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton(
+                text="⬅️ Назад", 
+                callback_data=f"display_receipts_page_{page-1}"
+            ))
+        if end_index < len(receipts):
+            nav_buttons.append(InlineKeyboardButton(
+                text="Вперед ➡️", 
+                callback_data=f"display_receipts_page_{page+1}"
+            ))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+
+        # Add back button
+        keyboard.append([InlineKeyboardButton(
+            text="К истории покупок", 
+            callback_data="back_to_history_delete"
+        )])
+
+        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+        # Send or edit message
+        if message.message_id:
+            await bot.edit_message_text(
+                chat_id=user_id,
+                message_id=message.message_id,
+                text="Выберите чек для просмотра:",
+                reply_markup=markup
             )
-        ])
+        else:
+            await bot.send_message(
+                chat_id=user_id,
+                text="Выберите чек для просмотра:",
+                reply_markup=markup
+            )
 
-    # Add navigation buttons
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton(
-            text="⬅️ Назад", 
-            callback_data=f"display_receipts_page_{page-1}"
-        ))
-    if end_index < len(receipts):
-        nav_buttons.append(InlineKeyboardButton(
-            text="Вперед ➡️", 
-            callback_data=f"display_receipts_page_{page+1}"
-        ))
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    # Add back button
-    keyboard.append([InlineKeyboardButton(
-        text="К истории покупок", 
-        callback_data="back_to_history_delete"
-    )])
-
-    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-    # Send or edit message
-    if message.message_id:
-        await bot.edit_message_text(
-            chat_id=user_id,
-            message_id=message.message_id,
-            text="Выберите чек для просмотра:",
-            reply_markup=markup
-        )
-    else:
-        await bot.send_message(
-            chat_id=user_id,
-            text="Выберите чек для просмотра:",
-            reply_markup=markup
-        )
+        logger.info(f"Successfully displayed {end_index - start_index} receipts to user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to display receipts for user {user_id}: {str(e)}", exc_info=True)
+        raise
 
     return markup
 
 @dp.callback_query(lambda c: c.data == "history_receipts")
 async def handle_history_receipts(callback_query: CallbackQuery):
-    """Handle receipt history display."""
+    user_id = callback_query.from_user.id
+    logger.info(f"User {user_id} accessed receipt history")
+    
     await callback_query.answer()
     await bot.delete_message(
         chat_id=callback_query.message.chat.id, 

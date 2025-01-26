@@ -7,12 +7,14 @@ from bot.bot_init import bot, dp
 from config.config import INSTRUCTION_IMAGES_PATH, DOWNLOADING_INSTRUCTIONS, USAGE_INSTRUCTIONS
 from bot.handlers.menu_utils import show_menu_to_user  # Change this line
 from bot.handlers.start import get_active_users
+from utils.logger import logger
 
 # Track users waiting for next button press
 waiting_users = {}
 
 async def show_instruction_step(user_id, text, image_path=None, parse_mode='Markdown', button_text='Далее'):
     """Send an instruction step with optional image and wait for user confirmation."""
+    logger.debug(f"Showing instruction step for user {user_id}, image: {image_path}")
     callback_data = f"next_{user_id}"
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[[
@@ -42,11 +44,15 @@ async def show_instruction_step(user_id, text, image_path=None, parse_mode='Mark
         future = asyncio.get_event_loop().create_future()
         waiting_users[user_id] = future
         await future
+        logger.info(f"Successfully showed instruction step to user {user_id}")
         
     except asyncio.CancelledError:
-        print(f"Instruction step cancelled for user {user_id}")
+        logger.warning(f"Instruction step cancelled for user {user_id}")
+    except Exception as e:
+        logger.error(f"Error showing instruction step for user {user_id}: {str(e)}", exc_info=True)
     finally:
         waiting_users.pop(user_id, None)
+        logger.debug(f"Cleaned up waiting_users for user {user_id}")
 
 @dp.callback_query(lambda c: c.data and c.data.startswith("next_"))
 async def handle_next_button(callback_query: CallbackQuery):

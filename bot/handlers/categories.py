@@ -1,10 +1,11 @@
 from collections import defaultdict
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
-from main import logger
+from bot.main import logger
 from bot.bot_init import bot, dp
 from utils.utils import create_back_button
 from utils.data_processor import count_product_amounts
+from utils.logger import logger
 
 # Track messages for cleanup
 user_messages_categories = defaultdict(list)
@@ -20,6 +21,11 @@ async def display_categories(user_id, message, product_counts, undetected_catego
         undetected_categories: Dictionary of uncategorized products
         page: Current page number for pagination
     """
+    logger.debug(
+        f"Displaying categories for user {user_id}, page {page}\n"
+        f"Product counts: {len(product_counts)}, Undetected: {len(undetected_categories)}"
+    )
+    
     keyboard = []
     categories_list = list(product_counts.items()) + list(undetected_categories.items())
     start_index = page * 7
@@ -84,8 +90,11 @@ async def display_categories(user_id, message, product_counts, undetected_catego
                 text="Выберите категорию для просмотра источников:",
                 reply_markup=markup
             )
+        logger.info(f"Successfully displayed categories page {page} to user {user_id}")
     except Exception as e:
-        print(f"Error displaying categories: {e}")
+        logger.error(f"Failed to display categories for user {user_id}: {e}")
+        logger.debug(f"Error details: {str(e)}")
+        raise
 
 @dp.callback_query(lambda c: c.data == "history_categories")
 async def handle_display_categories(callback_query: CallbackQuery):
