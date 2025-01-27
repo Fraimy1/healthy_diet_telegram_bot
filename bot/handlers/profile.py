@@ -3,33 +3,35 @@ from sqlalchemy import func, and_
 
 from bot.bot_init import bot, dp
 from utils.db_utils import (
-    get_connection, Users, UserSettings, 
+    get_connection, Users, UserSettings,
     UserPurchases
 )  # Updated imports
 from utils.utils import create_back_button
+
 
 @dp.callback_query(lambda c: c.data == "history_user_profile")
 async def handle_user_profile(callback_query: CallbackQuery):
     """Display user profile with statistics."""
     await callback_query.answer()
     await bot.delete_message(
-        chat_id=callback_query.message.chat.id, 
+        chat_id=callback_query.message.chat.id,
         message_id=callback_query.message.message_id
     )
     user_id = callback_query.from_user.id
 
     # Get all user statistics from database
     stats = await get_user_statistics(user_id)
-    
+
     # Format statistics message
     statistics = format_statistics_message(stats)
-    
+
     # Send formatted statistics
     back_button = create_back_button(
-        text="К истории покупок", 
+        text="К истории покупок",
         callback_data="back_to_history_delete"
     )
     await bot.send_message(user_id, statistics, reply_markup=back_button)
+
 
 async def get_user_statistics(user_id: int) -> dict:
     """Get user statistics from database using SQLAlchemy."""
@@ -61,7 +63,7 @@ async def get_user_statistics(user_id: int) -> dict:
         ).filter(
             and_(
                 UserPurchases.user_id == user_id,
-                UserPurchases.in_history == True
+                UserPurchases.in_history
             )
         ).scalar() or 0
 
@@ -71,7 +73,7 @@ async def get_user_statistics(user_id: int) -> dict:
         ).filter(
             and_(
                 UserPurchases.user_id == user_id,
-                UserPurchases.in_history == True
+                UserPurchases.in_history
             )
         ).scalar() or 0
 
@@ -88,11 +90,12 @@ async def get_user_statistics(user_id: int) -> dict:
             'total_spending': total_spending
         }
 
+
 def format_statistics_message(stats: dict) -> str:
     """Format user statistics into a readable message."""
     return (
         f"📊 Общая статистика:\n\n"
-        
+
         f"📝 Всего чеков добавлено: {stats.get('total_receipts', 0)}\n"
         f"📈 Уникальных чеков добавлено: {stats.get('original_receipts_added', 0)}\n"
         f"📈 Чеков в истории: {stats.get('history_receipts', 0)}\n"
