@@ -15,5 +15,8 @@ html_parser/
 *.ipynb
 *.db
 *.xlsx
-
 __pycache__
+
+# Exceptions
+!visualization.ipynb
+!visualization_testing.ipynb
