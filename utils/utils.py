@@ -58,33 +58,32 @@ def update_user_contributions(user_id: int):
             UserPurchases.receipt_id
         ).subquery()
 
-        # Find receipts where this user was first
+        # Find receipts where this user was first to add them
         unique_receipts = session.query(
             UserPurchases.receipt_id
         ).join(
             user_receipts_subq,
-            UserPurchases.receipt_id == user_receipts_subq.c.receipt_id
+            (UserPurchases.receipt_id == user_receipts_subq.c.receipt_id) &
+            (UserPurchases.purchase_datetime == user_receipts_subq.c.first_purchase_time)
         ).filter(
-            UserPurchases.user_id == user_id,
-            UserPurchases.purchase_datetime == user_receipts_subq.c.first_purchase_time
-        ).all()
+            UserPurchases.user_id == user_id
+        ).distinct().all()
 
+        # Changed from dict access to tuple access since SQLAlchemy returns tuples
         unique_receipt_ids = [r[0] for r in unique_receipts]
-        original_receipts_added = len(unique_receipt_ids)
 
-        # Count products from unique receipts
+        # Count distinct products from unique receipts
+        products_count = 0
         if unique_receipt_ids:
             products_count = session.query(func.count(ReceiptItems.item_id)).filter(
                 ReceiptItems.user_id == user_id,
                 ReceiptItems.receipt_id.in_(unique_receipt_ids)
-            ).scalar()
-        else:
-            products_count = 0
+            ).scalar() or 0
 
         # Update user record
         user = session.query(Users).filter_by(user_id=user_id).first()
         if user:
-            user.original_receipts_added = original_receipts_added
+            user.original_receipts_added = len(unique_receipt_ids)
             user.products_added = products_count
 
 def sanitize_username(username):

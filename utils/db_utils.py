@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float,
-    Boolean, DateTime, ForeignKey, event
+    Boolean, DateTime, ForeignKey, event, ForeignKeyConstraint
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from contextlib import contextmanager
@@ -48,25 +48,32 @@ class UserPurchases(Base):
 
 class ReceiptItems(Base):
     __tablename__ = "receipt_items"
-    item_id = Column(Integer, primary_key=True, unique=True, nullable=False)
-    receipt_id = Column(
-        String,
-        ForeignKey("user_purchases.receipt_id", onupdate="CASCADE", ondelete="CASCADE")
-    )
-    user_id = Column(
-        Integer,
-        ForeignKey("users.user_id", onupdate="CASCADE", ondelete="CASCADE"),
-        nullable=False
-    )
+
+    # Use item_id as the primary key (autoincrement):
+    item_id = Column(Integer, primary_key=True, autoincrement=True)
+    # The same columns we had, but no direct one-column FKs:
+    receipt_id = Column(String, nullable=False)
+    user_id = Column(Integer, nullable=False)
+
     quantity = Column(Float)
     percentage = Column(Float)
-    amount = Column(Float)
+    amount = Column(String)
     product_name = Column(String)
-    portion = Column(Float)
+    portion = Column(String)
     prediction = Column(String)
     user_prediction = Column(String)
     confidence = Column(Float)
     in_history = Column(Boolean)
+
+    # Composite FK referencing the primary key of user_purchases
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["receipt_id", "user_id"],  # local columns
+            ["user_purchases.receipt_id", "user_purchases.user_id"],  # remote columns
+            ondelete="CASCADE",
+            onupdate="CASCADE"
+        ),
+    )
 
 class UserSettings(Base):
     __tablename__ = "user_settings"

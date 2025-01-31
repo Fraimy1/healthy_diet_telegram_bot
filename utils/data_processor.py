@@ -9,6 +9,7 @@ from utils.db_utils import (
 )
 import os
 import uuid
+from utils.logger import logger
 
 parser = Parser()
 
@@ -34,19 +35,27 @@ def parse_json(receipt_data: dict):
             receipt_doc = receipt_data["ticket"]["document"]["receipt"]
         else:
             receipt_doc = receipt_data
+        # Datetime object handling
         purchase_datetime = receipt_doc.get("dateTime")
         
         if purchase_datetime and isinstance(purchase_datetime, str):
-            for format_string in ["%Y-%m-%dT%H:%M:%S"]:
+            for format_string in ["%Y-%m-%dT%H:%M:%S", '%Y-%m-%d_%H:%M:%S']:
                 try:
-                    purchase_datetime = datetime.strptime(purchase_datetime, format_string).strftime("%Y-%m-%d_%H:%M:%S")
+                    purchase_datetime = datetime.strptime(purchase_datetime, format_string)
+                    break # Stop if found formatting
                 except:
                     pass
         elif 'localDateTime' in receipt_doc:
-            purchase_datetime = datetime.strptime(receipt_doc['localDateTime'], "%Y-%m-%dT%H:%M").strftime("%Y-%m-%d_%H:%M:%S")
+            purchase_datetime = datetime.strptime(receipt_doc['localDateTime'], "%Y-%m-%dT%H:%M")
         else:
-            purchase_datetime = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-            
+            purchase_datetime = None #* Important
+        
+        # Tax information and company name
+        retail_place = receipt_doc.get("retailPlace", None)
+        retail_place_address = receipt_doc.get("retailPlaceAddress", None)
+        company_name = receipt_doc.get("user", None)
+        inn = receipt_doc.get("userInn", None)
+        
         total_sum = receipt_doc.get("ecashTotalSum", receipt_doc.get("cashTotalSum", 0))
         total_sum = float(total_sum) / 100  # to rubles
 
@@ -67,8 +76,11 @@ def parse_json(receipt_data: dict):
         "receipt_id": receipt_id,
         "purchase_datetime": purchase_datetime,
         "total_sum": total_sum,
+        'retail_place': retail_place,
+        'retail_place_address': retail_place_address,
+        'company_name': company_name,
+        'inn': inn
     }
-
     return pd.DataFrame(items), receipt_info
 
 def predict_product_categories(items_data, bert_2level_model, le, min_confidence=0.5):
@@ -105,53 +117,52 @@ def predict_product_categories(items_data, bert_2level_model, le, min_confidence
 
     return items_data
 
-def save_data_for_database(new_data, receipt_info, user_id):
-    """
-    Saves the processed receipt data into the database using SQLAlchemy.
-    """
-    with get_connection() as session:
-        # Get user settings
-        user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
-        
-        if user_settings is None:
-            print(f"User with ID {user_id} not found in the database.")
-            return
-
-        try:
-            # Create new purchase record
-            new_purchase = UserPurchases(
-                receipt_id=receipt_info['receipt_id'],
-                user_id=user_id,
-                purchase_datetime=datetime.strptime(
-                    receipt_info['purchase_datetime'],
-                    '%Y-%m-%d_%H:%M:%S'
-                ),
-                total_sum=receipt_info['total_sum'],
-                in_history=user_settings.add_to_history
+def save_data_for_database(items_data: pd.DataFrame, receipt_info: dict, user_id: int):
+    """Save receipt and items data to database with improved transaction handling."""
+    # If receipt doesn't exist, create it in a new transaction
+    try:
+        with get_connection() as session:
+            add_to_history_bool = session.query(UserSettings.add_to_history).filter(UserSettings.user_id == user_id).scalar()
+            # Start with the parent record
+            receipt_purchase = UserPurchases(
+                receipt_id = receipt_info['receipt_id'],
+                user_id = user_id,
+                purchase_datetime = receipt_info.get('purchase_datetime'),
+                total_sum = receipt_info.get('total_sum'),
+                in_history = add_to_history_bool,
+                retail_place = receipt_info.get('retail_place'),
+                retail_place_address = receipt_info.get('retail_place_address'),
+                company_name = receipt_info.get('company_name'),
+                inn = receipt_info.get('inn')
             )
-            session.add(new_purchase)
+            session.add(receipt_purchase)
+        
 
-            # Add receipt items
-            for _, row in new_data.iterrows():
-                new_item = ReceiptItems(
-                    receipt_id=receipt_info['receipt_id'],
-                    user_id=user_id,
-                    quantity=row.get('quantity', 1),
-                    percentage=row.get('percentage'),
-                    amount=row.get('amount'),
-                    product_name=row.get('name'),  # Original name from receipt
-                    portion=row.get('portion'),
-                    prediction=row.get('prediction'),
-                    user_prediction=row.get('user_prediction'),
-                    confidence=row.get('confidence', 0.0),
-                    in_history=user_settings.add_to_history
+        with get_connection() as session:
+            # Prepare all items before adding anything
+            receipt_items = []
+            for _, item in items_data.iterrows():
+                receipt_item = ReceiptItems(
+                    receipt_id = receipt_info['receipt_id'],
+                    user_id = user_id,
+                    quantity = item.get('quantity'),
+                    amount = item.get('sum_rub'),
+                    product_name = item.get('name'),
+                    portion = item.get('portion'),
+                    prediction = item.get('prediction'),
+                    user_prediction = item.get('user_prediction'),
+                    confidence = item.get('confidence'),
+                    in_history = add_to_history_bool
                 )
-                session.add(new_item)
-
-            print(f"Receipt {receipt_info['receipt_id']} saved successfully.")
-        except Exception as e:
-            print(f"An error occurred while saving receipt {receipt_info['receipt_id']}: {e}")
-            raise
+                receipt_items.append(receipt_item)
+            # Add items one by one to better handle potential errors
+            for item in receipt_items:
+                session.add(item)
+                session.flush()  # Verify each item can be added
+                            
+    except Exception as e:
+        session.rollback()
+        raise e
 
 def get_sorted_user_receipts(user_id):
     """

@@ -13,7 +13,8 @@ from bot.handlers import (
     history,
     profile,
     microelements,
-    categories
+    categories,
+    receipt_processing
 )
 
 async def register_handlers():

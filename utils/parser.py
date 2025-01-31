@@ -83,8 +83,25 @@ class Parser:
         """Extracts portion information from the entry."""
         match = self._portion_pattern.search(entry)
         if match:
-            info = match.group(0).replace(' ', '').replace(',', '.').lower()
+            # The first capturing group is the numeric part.
+            number_str = match.group(1).replace(' ', '').replace(',', '.')
+
+            # Now we want the portion unit from the entire matched string.
+            # e.g., if match.group(0) == "3 шт" or "2 упак"
+            portion_text = match.group(0)
+
+            # We'll do a quick second regex to isolate the unit.
+            portion_unit_pattern = re.compile(r'(шт|порц|упак|доз)', re.IGNORECASE)
+            unit_match = portion_unit_pattern.search(portion_text)
+            if unit_match:
+                portion_unit = unit_match.group(1).lower()
+            else:
+                portion_unit = ""  # Fallback if it somehow didn't match
+
+            info = f"{number_str} {portion_unit}"
             info = self.replace_multiple_spaces_with_single(info)
+            
+            # Remove the matched substring from the original entry
             entry = entry.replace(match.group(0), '').strip()
             return info, entry
         return None, entry
