@@ -230,3 +230,8 @@ def clean_old_backups(limit=BACKUP_LIMIT):
             print(f"Deleted old backup: {old_backup}")
     except Exception as e:
         print(f"Failed to clean up old backups: {e}")
+
+if __name__ == '__main__':
+    with get_connection() as session:
+        # Delete all the purchase data of the user_id 968466884
+        session.query(UserPurchases).filter(UserPurchases.user_id == 968466884).delete()

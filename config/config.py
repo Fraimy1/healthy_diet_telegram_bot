@@ -22,6 +22,8 @@ CONSOLE_LOG = True
 LOGGING_LEVEL = "DEBUG"
 KEEP_LAST_LOGS = 1 # Number of previous logs to keep
 
+# Utilities config
+SHOW_PROGRESS_TIMES = 10
 
 WELCOME_MESSAGES = (
     "Привет! Я ваш помощник по здоровой диете",
