@@ -189,7 +189,10 @@ class Parser:
         }
 
         number, unit = amount.split()
-        multiplier = unit_conversion.get(unit.lower(), 1000)  # default to kg
+        multiplier = unit_conversion.get(unit.lower(), None)
+        if multiplier is None:
+            return None
+        
         amount_in_grams = float(number) * multiplier
         
         return amount_in_grams

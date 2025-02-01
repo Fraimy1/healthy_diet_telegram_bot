@@ -146,7 +146,8 @@ def save_data_for_database(items_data: pd.DataFrame, receipt_info: dict, user_id
                     receipt_id = receipt_info['receipt_id'],
                     user_id = user_id,
                     quantity = item.get('quantity'),
-                    amount = item.get('sum_rub'),
+                    amount = item.get('amount'),
+                    price = item.get('sum_rub'),
                     product_name = item.get('name'),
                     portion = item.get('portion'),
                     prediction = item.get('prediction'),
@@ -239,9 +240,9 @@ def count_product_amounts(user_id):
                 parts = amount_str.split()
                 if len(parts) == 2:
                     try:
-                        converted = parser.convert_amount_units_to_grams(amount_str)
-                        if converted is not None:
-                            amount_grams = converted * quantity
+                        converted_unit = parser.convert_amount_units_to_grams(amount_str)
+                        if converted_unit is not None:
+                            amount_grams = converted_unit * quantity
                     except Exception:
                         pass
 
@@ -365,3 +366,164 @@ def get_microelements_data(user_id, microelements_table):
             final_microelements[element] = data
 
     return final_microelements
+
+def count_product_amounts_by_period(user_id, start_date, end_date):
+    """
+    Counts the total amount of each product in a user's purchases within a specified period.
+    
+    Args:
+        user_id (int): The user's ID.
+        start_date (datetime): The start datetime for the period.
+        end_date (datetime): The end datetime for the period.
+        
+    Returns:
+        tuple: A tuple (product_counts, undetected_categories) where product_counts is a 
+               dict mapping product (user_prediction) to total amount and sources, and 
+               undetected_categories contains items for which an amount could not be determined.
+    """
+    with get_connection() as session:
+        # Get default amounts from the database
+        default_amounts_query = session.query(DefaultAmounts)
+        default_amounts = {row.item_name: row.item_amount for row in default_amounts_query.all()}
+
+        # Query receipt items joined with their parent receipts filtered by purchase_datetime
+        items_query = session.query(
+            ReceiptItems.product_name,
+            ReceiptItems.quantity,
+            ReceiptItems.amount,
+            ReceiptItems.user_prediction,
+            ReceiptItems.receipt_id
+        ).join(
+            UserPurchases,
+            (UserPurchases.receipt_id == ReceiptItems.receipt_id) &
+            (UserPurchases.user_id == ReceiptItems.user_id)
+        ).filter(
+            UserPurchases.user_id == user_id,
+            UserPurchases.in_history == True,
+            UserPurchases.purchase_datetime >= start_date,
+            UserPurchases.purchase_datetime <= end_date
+        )
+        items_data = items_query.all()
+
+    product_counts = {}
+    undetected_categories = {}
+
+    # Process each retrieved item
+    for row in items_data:
+        product_name = row.product_name
+        user_prediction = (row.user_prediction or '').strip()
+        quantity = row.quantity if row.quantity is not None else 1
+        amount_str = row.amount
+
+        # Skip inedible items
+        if user_prediction == 'несъедобное':
+            continue
+
+        amount_grams = None
+        default_amount_grams = default_amounts.get(user_prediction, None)
+
+        if default_amount_grams is not None:
+            amount_grams = default_amount_grams * quantity
+        else:
+            if amount_str is not None:
+                parts = amount_str.split()
+                logger.debug(parts)
+                if len(parts) == 2:
+                    try:
+                        amount_in_grams = parser.convert_amount_units_to_grams(amount_str)
+                        logger.debug(f'"{amount_str}" -> {amount_in_grams}')
+                        if amount_in_grams is not None:
+                            amount_grams = amount_in_grams * quantity
+                    except Exception:
+                        pass
+
+        if amount_grams is None:
+            if user_prediction not in undetected_categories:
+                undetected_categories[user_prediction] = {'total_amount': 0, 'sources': []}
+            undetected_categories[user_prediction]['sources'].append(product_name)
+            continue
+
+        if user_prediction not in product_counts:
+            product_counts[user_prediction] = {'total_amount': 0, 'sources': []}
+
+        product_counts[user_prediction]['total_amount'] += amount_grams
+        product_counts[user_prediction]['sources'].append((product_name, amount_grams))
+
+    # Sort the sources for each product
+    for product in product_counts:
+        product_counts[product]['sources'].sort(key=lambda x: x[1], reverse=True)
+
+    # Sort products by total_amount in descending order
+    sorted_products = sorted(product_counts.items(), key=lambda x: x[1]['total_amount'], reverse=True)
+    product_counts = dict(sorted_products)
+
+    return product_counts, undetected_categories
+
+
+def get_microelements_data_by_period(user_id, start_date, end_date, microelements_table):
+    """
+    Computes the microelements data for a user's purchases within a specified period.
+    
+    This function uses the product counts (in grams) from receipts in the date range 
+    and applies the microelements data per 100 grams from the provided table.
+    
+    Args:
+        user_id (int): The user's ID.
+        start_date (datetime): The start datetime for the period.
+        end_date (datetime): The end datetime for the period.
+        microelements_table (dict): The nested dictionary (product_name -> microelement_name -> amount)
+                                    typically obtained via restructure_microelements().
+                                    
+    Returns:
+        dict: A dictionary with microelement names as keys and dictionaries (with total_amount and sources) as values.
+        Also returns undetected_categories from the counting step.
+    """
+    product_counts, undetected_categories = count_product_amounts_by_period(user_id, start_date, end_date)
+
+    microelements_data = {}
+
+    for product, data in product_counts.items():
+        if product in microelements_table:
+            total_amount = data['total_amount']
+            # Calculate microelements for the product
+            product_microelements = get_microelements_for_product(product, total_amount, microelements_table)
+
+            for element, value in product_microelements.items():
+                if element not in microelements_data:
+                    microelements_data[element] = {'total_amount': 0, 'sources': []}
+                # Only add if the value is positive
+                if value > 0:
+                    microelements_data[element]['total_amount'] += value
+                    microelements_data[element]['sources'].append((product, value))
+
+    # Remove microelements with non-positive total_amount
+    microelements_data = {k: v for k, v in microelements_data.items() if v['total_amount'] > 0}
+
+    # Sort sources for each microelement
+    for element in microelements_data:
+        microelements_data[element]['sources'].sort(key=lambda x: x[1], reverse=True)
+
+    # Sort microelements by total_amount in descending order
+    sorted_microelements = sorted(microelements_data.items(), key=lambda x: x[1]['total_amount'], reverse=True)
+
+    # Place "Энергетическая ценность" first if present
+    final_microelements = {}
+    for element, data in sorted_microelements:
+        if element == "Энергетическая ценность":
+            final_microelements[element] = data
+            break
+    for element, data in sorted_microelements:
+        if element != "Энергетическая ценность":
+            final_microelements[element] = data
+
+    return final_microelements, undetected_categories
+
+if __name__ == '__main__':
+    from datetime import datetime
+    # Define your period
+    start = datetime(2024, 11, 26)
+    end = datetime(2024, 11, 27)
+    # Assuming you have restructured microelements table:
+    microelements_table = restructure_microelements()
+    micro_data, undetected = get_microelements_data_by_period(968466884, start, end, microelements_table)
+    print(micro_data, undetected)
