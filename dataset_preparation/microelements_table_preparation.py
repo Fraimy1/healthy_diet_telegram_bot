@@ -81,24 +81,6 @@ def drop_missing_products(data_block: pd.DataFrame, product_col: int) -> pd.Data
     return data_block.dropna(subset=[product_col])
 
 
-# List of column names to drop (if present) from both the header and data.
-DROP_COLS = ['Степень обработки', "Пурины", "Оксалат", "Фруктоза", "Галактоза",
-             "ТрансжирыУд.вес", "Код продукта", "Ближайшая категория (БК)", "Код БК",
-             "число продуктов  в датасете"]
-
-
-def drop_specified_columns(header_block: pd.DataFrame, data_block: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Drops columns (from both the header and product data) whose header (row 0 of header_block)
-    is found in DROP_COLS.
-    """
-    cols_to_drop = [col for col in range(header_block.shape[1])
-                    if header_block.iloc[0, col] in DROP_COLS]
-    header_block = header_block.drop(columns=cols_to_drop).reset_index(drop=True)
-    data_block = data_block.drop(columns=cols_to_drop)
-    return header_block, data_block
-
-
 def fill_missing_numeric(data_block: pd.DataFrame, product_col: int) -> pd.DataFrame:
     """
     Fills missing values in all product data columns (except the product name column)
@@ -138,6 +120,8 @@ def save_final_csv(header_block: pd.DataFrame, data_block: pd.DataFrame, output_
     and writes the full DataFrame to CSV using '|' as the separator.
     """
     final_df = pd.concat([header_block, data_block], ignore_index=True)
+    final_df.columns = final_df.iloc[0]
+    final_df.drop(0, inplace=True)
     final_df.to_csv(output_path, index=False, sep='|')
 
 
@@ -157,10 +141,7 @@ def process_microelements_table(url: str):
     # 1. Drop rows missing the product name.
     data_block = drop_missing_products(data_block, product_col)
 
-    # 2. Drop specified columns from both header and data.
-    header_block, data_block = drop_specified_columns(header_block, data_block)
-
-    # 3. Fill missing numeric values and convert strings to float.
+    # 2. Fill missing numeric values and convert strings to float.
     data_block = fill_missing_numeric(data_block, product_col)
     data_block = convert_columns_to_float(data_block, product_col)
 
@@ -171,12 +152,12 @@ def process_microelements_table(url: str):
     save_final_csv(header_block, data_block, output_path)
 
     # For verification, print the first several rows of the saved CSV.
-    result = pd.read_csv(output_path, sep='|', header=None)
+    result = pd.read_csv(output_path, sep='|')
     print(result.head(10))
 
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     # Replace with the actual link to your Excel file.
-    excel_url = ""
+    excel_url = "https://docs.google.com/spreadsheets/d/1I151JmSv9oJT-wsyDkPoHU4yTVcCAx66WicJYULqNDA/export?format=xlsx"
     process_microelements_table(excel_url)
