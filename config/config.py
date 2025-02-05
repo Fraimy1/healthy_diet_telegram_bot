@@ -10,6 +10,7 @@ DATABASE_PATH = "data/database"
 # Database config
 DATABASE_FILE_PATH ='data/new_database.db'
 BACKUP_FOLDER = 'data/backups'
+MICROELEMENTS_PATH = 'data/database/cleaned_microelements_table.csv'
 BACKUP_LIMIT = 100
 
 # Model config
