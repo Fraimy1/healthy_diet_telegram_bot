@@ -7,6 +7,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from contextlib import contextmanager
+from sqlalchemy.inspection import inspect
 
 Base = declarative_base()
 
@@ -174,6 +175,10 @@ def get_connection():
         raise
     finally:
         session.close()
+
+#small helper function
+def to_dict(obj):
+    return {c.key: getattr(obj, c.key) for c in inspect(obj).mapper.column_attrs}
 
 ##############################################################################
 # FUNCTION TO CREATE ALL TABLES
