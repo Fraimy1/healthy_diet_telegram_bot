@@ -280,11 +280,11 @@ def restructure_microelements():
 
     restructured = {}
     for _, row in microelements_table.iterrows():
-        product_name = row['Продукт в ТХС'].lower().strip()
+        product_name = row['Продукты, назв сокр'].lower().strip()
         product_data = {}
 
         for column in microelements_table.columns:
-            if column.strip() != 'Продукт в ТХС':
+            if column.strip() != 'Продукты, назв сокр':
                 # Translate the column name if it's in the dictionary
                 translated_column = ABBREVIATION_MICROELEMENTS_DICT.get(column.strip(), column.strip())
                 product_data[translated_column] = row[column]

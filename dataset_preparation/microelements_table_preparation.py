@@ -18,6 +18,13 @@ import gdown
 import pandas as pd
 from config.config import DATABASE_PATH
 
+# Define the list of columns that should remain as strings.
+non_numeric_columns = [
+    'Продукты, назв сокр',
+    'БК',
+    'Код БК',
+    'число продуктов'
+]
 
 # ─── STEP 1: DOWNLOAD THE EXCEL FILE ──────────────────────────────────────────
 def download_excel(url: str) -> str:
@@ -30,14 +37,12 @@ def download_excel(url: str) -> str:
     gdown.download(url, dest, quiet=False)
     return dest
 
-
 # ─── STEP 2: READ THE EXCEL FILE WITHOUT PRE-DEFINED HEADER ────────────────
 def load_excel_no_header(path: str) -> pd.DataFrame:
     """
     Reads the Excel file without treating any row as the header.
     """
     return pd.read_excel(path, header=None)
-
 
 # ─── STEP 3: SPLIT THE HEADER BLOCK FROM THE PRODUCT DATA ───────────────────
 def extract_header_and_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -57,7 +62,6 @@ def extract_header_and_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
     data_block = df.iloc[7:].reset_index(drop=True)
     return header_block, data_block
 
-
 # ─── UTILITY: FIND THE PRODUCT-NAME COLUMN ────────────────────────────────
 def get_product_col_index(header_block: pd.DataFrame) -> int:
     """
@@ -69,7 +73,6 @@ def get_product_col_index(header_block: pd.DataFrame) -> int:
             return col
     raise ValueError("Product column ('Продукты, назв сокр') not found in header.")
 
-
 # ─── STEP 4: PROCESS THE PRODUCT DATA ──────────────────────────────────────────
 # (Each function takes and returns a DataFrame, allowing functional composition.)
 
@@ -80,38 +83,39 @@ def drop_missing_products(data_block: pd.DataFrame, product_col: int) -> pd.Data
     """
     return data_block.dropna(subset=[product_col])
 
-
-def fill_missing_numeric(data_block: pd.DataFrame, product_col: int) -> pd.DataFrame:
+def fill_missing_numeric(data_block: pd.DataFrame, product_col: int, header_names: list) -> pd.DataFrame:
     """
-    Fills missing values in all product data columns (except the product name column)
-    with 0.
+    Fills missing values in all product data columns (except the product name column
+    and columns specified in non_numeric_columns) with 0.
     """
     for col in data_block.columns:
-        if col == product_col:
+        # Skip the product name column and any column that should remain as string.
+        if col == product_col or header_names[col] in non_numeric_columns:
             continue
         data_block[col] = data_block[col].fillna(0)
     return data_block
 
-
-def convert_columns_to_float(data_block: pd.DataFrame, product_col: int) -> pd.DataFrame:
+def convert_columns_to_float(data_block: pd.DataFrame, product_col: int, header_names: list) -> pd.DataFrame:
     """
-    Converts non-product columns in the product data to float.
+    Converts non-product columns in the product data to float, except for columns
+    specified in non_numeric_columns.
     It removes extra commas or spaces from string numbers.
     """
     def convert_val(x):
         try:
             if isinstance(x, str):
+                # Remove commas and spaces before conversion.
                 return float(x.replace(',', '').replace(' ', ''))
             return float(x)
         except Exception:
             return x
 
     for col in data_block.columns:
-        if col == product_col:
+        # Skip columns that should remain as strings.
+        if col == product_col or header_names[col] in non_numeric_columns:
             continue
         data_block[col] = data_block[col].apply(convert_val)
     return data_block
-
 
 # ─── STEP 5: SAVE THE FINAL CSV INCLUDING THE HEADER BLOCK ──────────────────
 def save_final_csv(header_block: pd.DataFrame, data_block: pd.DataFrame, output_path: str):
@@ -124,7 +128,6 @@ def save_final_csv(header_block: pd.DataFrame, data_block: pd.DataFrame, output_
     final_df.drop(0, inplace=True)
     final_df.to_csv(output_path, index=False, sep='|')
 
-
 # ─── PIPELINE: COMPOSE THE STEPS FUNCTIONALLY ───────────────────────────────
 def process_microelements_table(url: str):
     # Download and read the Excel file.
@@ -134,6 +137,8 @@ def process_microelements_table(url: str):
     # Separate header (rows 0-6) from product data (all remaining rows).
     header_block, data_block = extract_header_and_data(df_raw)
 
+    # Get header names from the first row of header_block.
+    header_names = list(header_block.iloc[0])
     # Identify the product name column (by checking the header row).
     product_col = get_product_col_index(header_block)
 
@@ -141,9 +146,10 @@ def process_microelements_table(url: str):
     # 1. Drop rows missing the product name.
     data_block = drop_missing_products(data_block, product_col)
 
-    # 2. Fill missing numeric values and convert strings to float.
-    data_block = fill_missing_numeric(data_block, product_col)
-    data_block = convert_columns_to_float(data_block, product_col)
+    # 2. Fill missing numeric values (only for numeric columns).
+    data_block = fill_missing_numeric(data_block, product_col, header_names)
+    # 3. Convert numeric columns to float (skipping non_numeric_columns).
+    data_block = convert_columns_to_float(data_block, product_col, header_names)
 
     # (No unit conversion or row filtering is performed now.)
 
@@ -154,7 +160,6 @@ def process_microelements_table(url: str):
     # For verification, print the first several rows of the saved CSV.
     result = pd.read_csv(output_path, sep='|')
     print(result.head(10))
-
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
