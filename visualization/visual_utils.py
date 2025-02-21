@@ -2,17 +2,40 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import numpy as np
 from scipy.stats import norm
+import pandas as pd
+
+# Add Russian month names mapping
+MONTH_NAMES = {
+    1: 'янв', 2: 'фев', 3: 'март', 
+    4: 'апр', 5: 'май', 6: 'июнь',
+    7: 'июль', 8: 'авг', 9: 'сент', 
+    10: 'окт', 11: 'ноя', 12: 'дек'
+}
 
 # * NOTES:
 # * 1. the resolutions are emperical and don't follow any strict rules right now
 # * 2. the parameters of some functions should be changed for efficiency and better flexibility
 
-def create_bju_chart(protein=15, fat=30, carbs=55, save_path=None, show_chart=True):
+def create_bju_chart(bju_data, save_path=None, show_chart=True):
+    """
+    Create BJU chart from Series containing Бел, Жир, Угл values.
+    
+    Args:
+        bju_data (pd.Series): Series with values for Бел, Жир, Угл
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
     
-    # Data for the chart
+    if bju_data.empty:
+        return None
+        
+    total = bju_data.sum()
+    values = [
+        (bju_data['Бел'] / total) * 100,
+        (bju_data['Жир'] / total) * 100,
+        (bju_data['Угл'] / total) * 100
+    ]
+    
     labels = ['Белок', 'Жир', 'Углеводы']
-    values = [protein, fat, carbs]
     colors = ['#B2E57B', '#FFD983', '#72CFFB']
     
     # Creating the pie chart
@@ -50,11 +73,29 @@ def create_bju_chart(protein=15, fat=30, carbs=55, save_path=None, show_chart=Tr
         fig.write_image(save_path, width=700, height=700, scale=2)
 
 
-def create_bju_macro_chart(protein=15, fat=40, water=30, fiber=5, carbs=30, save_path=None, show_chart=True):
+def create_bju_macro_chart(bju_macro_data, save_path=None, show_chart=True):
+    """
+    Create BJU and macronutrients chart from Series containing Бел, Жир, Вод, ПВ, Угл values.
+    
+    Args:
+        bju_macro_data (pd.Series): Series with values for Бел, Жир, Вод, ПВ, Угл
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
+    
+    if bju_macro_data.empty:
+        return None
+        
+    total = bju_macro_data.sum()
+    values = [
+        (bju_macro_data['Бел'] / total) * 100,
+        (bju_macro_data['Жир'] / total) * 100,
+        (bju_macro_data['Вод'] / total) * 100,
+        (bju_macro_data['ПВ'] / total) * 100,
+        (bju_macro_data['Угл'] / total) * 100
+    ]
+    
     # Data for the chart
     labels = ['Белок', 'Жир', 'Вода', 'Пищевые волокна', 'Углеводы']
-    values = [protein, fat, water, fiber, carbs]
     colors = ['#B2E57B', '#FFD983', '#B2E6F9', '#FFADC9', '#72F2A4']
     
     # Creating the pie chart
@@ -91,18 +132,30 @@ def create_bju_macro_chart(protein=15, fat=40, water=30, fiber=5, carbs=30, save
     if save_path:
         fig.write_image(save_path, width=700, height=700, scale=2)
 
-def create_bju_dynamics_chart(protein_values=[50, 55, 58, 69, 55, 63, 71, 62],
-                            fat_values=[30, 28, 32, 25, 22, 30, 35, 28],
-                            carbs_values=[40, 50, 45, 55, 60, 50, 40, 45],
-                            quartiles=['1Q23', '2Q23', '3Q23', '4Q23', '1Q24', '2Q24', '3Q24', '4Q24'],
-                            save_path=None, show_chart=True):
+def create_bju_dynamics_chart(bju_dynamics_data, save_path=None, show_chart=True):
+    """
+    Create BJU dynamics chart from dictionary of DataFrames.
+    
+    Args:
+        bju_dynamics_data (dict): Dictionary with (year, month) keys and DataFrames containing BJU data
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
-    # Data for the chart
-
+    
+    if not bju_dynamics_data:
+        return None
+        
+    # Sort the data by date and convert to Russian month names
+    sorted_keys = sorted(bju_dynamics_data.keys())
+    months = [f"{MONTH_NAMES[month]}{year}" for year, month in sorted_keys]
+    
+    protein_values = [data['Бел'] for data in bju_dynamics_data.values()]
+    fat_values = [data['Жир'] for data in bju_dynamics_data.values()]
+    carbs_values = [data['Угл'] for data in bju_dynamics_data.values()]
+    
     # Creating the line chart
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=quartiles,
+        x=months,
         y=protein_values,
         mode='lines+markers',
         name='Белок',
@@ -110,7 +163,7 @@ def create_bju_dynamics_chart(protein_values=[50, 55, 58, 69, 55, 63, 71, 62],
         marker=dict(size=8)
     ))
     fig.add_trace(go.Scatter(
-        x=quartiles,
+        x=months,
         y=fat_values,
         mode='lines+markers',
         name='Жир',
@@ -118,7 +171,7 @@ def create_bju_dynamics_chart(protein_values=[50, 55, 58, 69, 55, 63, 71, 62],
         marker=dict(size=8)
     ))
     fig.add_trace(go.Scatter(
-        x=quartiles,
+        x=months,
         y=carbs_values,
         mode='lines+markers',
         name='Углеводы',
@@ -163,10 +216,16 @@ def create_bju_dynamics_chart(protein_values=[50, 55, 58, 69, 55, 63, 71, 62],
         fig.write_image(save_path, width=800, height=600, scale=2)
 
 
-def create_health_index_chart(achieved_score=60, save_path=None, show_chart=True):
+def create_health_index_chart(izp_value, save_path=None, show_chart=True):
+    """
+    Create health index chart from IZP value.
+    
+    Args:
+        izp_value (int): IZP value between 0 and 100
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
     # Data for the chart
-    remaining_score = 100 - achieved_score  # Remaining score
+    remaining_score = 100 - izp_value  # Remaining score
     colors = ['#B2E57B', '#FFD983']  # Green for achieved, yellow for remaining
 
     # Creating the bar chart with empty space
@@ -183,8 +242,8 @@ def create_health_index_chart(achieved_score=60, save_path=None, show_chart=True
     # Add the main bar
     fig.add_trace(go.Bar(
         x=['Сумма баллов (ИЗП)'],  # Main column
-        y=[achieved_score],  # Achieved score
-        name=f'{achieved_score} баллов из 100',
+        y=[izp_value],  # Achieved score
+        name=f'{izp_value} баллов из 100',
         marker_color=colors[0]
     ))
     fig.add_trace(go.Bar(
@@ -230,7 +289,7 @@ def create_health_index_chart(achieved_score=60, save_path=None, show_chart=True
     
     # Add the larger score text as a second heading at the top
     fig.add_annotation(
-        text=f"{achieved_score} баллов из 100",
+        text=f"{izp_value} баллов из 100",
         x=0.5,
         y=1.10,  # Position above the chart title
         showarrow=False,
@@ -246,7 +305,13 @@ def create_health_index_chart(achieved_score=60, save_path=None, show_chart=True
         fig.write_image(save_path, width=600, height=600, scale=2)
 
 
-def create_percentile_chart(percentile=85, save_path=None, show_chart=True):
+def create_percentile_chart(izp_percentile, save_path=None, show_chart=True):
+    """
+    Create percentile chart from IZP percentile.
+    
+    Args:
+        izp_percentile (float): IZP percentile value between 0 and 100
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
     # Data for the normal distribution
     mean = 0
@@ -255,7 +320,7 @@ def create_percentile_chart(percentile=85, save_path=None, show_chart=True):
     y = norm.pdf(x, mean, std_dev)
 
     # Calculate the x-value for the given percentile
-    percentile_value = norm.ppf(percentile / 100, mean, std_dev)
+    percentile_value = norm.ppf(izp_percentile / 100, mean, std_dev)
 
     # Create the Plotly figure
     fig = go.Figure()
@@ -292,7 +357,7 @@ def create_percentile_chart(percentile=85, save_path=None, show_chart=True):
 
     # Customize the layout
     fig.update_layout(
-        title=f"Ваш ИЗП находится в {percentile} перцентиле.<br>Только {100 - percentile}% людей имеют более высокий ИЗП.",
+        title=f"Ваш ИЗП находится в {izp_percentile} перцентиле.<br>Только {100 - izp_percentile}% людей имеют более высокий ИЗП.",
         title_x=0.5,
         title_font=dict(size=16, color='gray'),
         xaxis=dict(
@@ -321,10 +386,22 @@ def create_percentile_chart(percentile=85, save_path=None, show_chart=True):
         fig.write_image(save_path, width=600, height=600, scale=2)
 
 
-def create_izp_dynamics_chart(izp_values=[10, 20, 35, 45, 50, 65, 75, 90],
-                            months=['сент24', 'окт24', 'ноя24', 'дек24', 'янв25', 'фев25', 'мар25', 'апр25'],
-                            save_path=None, show_chart=True):
+def create_izp_dynamics_chart(izp_dynamics_data, save_path=None, show_chart=True):
+    """
+    Create IZP dynamics chart from dictionary of IZP values.
+    
+    Args:
+        izp_dynamics_data (dict): Dictionary with (year, month) keys and IZP values
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
+    if not izp_dynamics_data:
+        return None
+        
+    # Sort the data by date and convert to Russian month names
+    sorted_keys = sorted(izp_dynamics_data.keys())
+    months = [f"{MONTH_NAMES[month]}{year}" for year, month in sorted_keys]
+    izp_values = [izp_dynamics_data[key] for key in sorted_keys]
+    
     # Data for the chart
 
     # Creating the line chart
@@ -382,13 +459,21 @@ def create_izp_dynamics_chart(izp_values=[10, 20, 35, 45, 50, 65, 75, 90],
         fig.write_image(save_path, width=800, height=600, scale=2)
 
 
-def create_food_category_donut_chart(values=[30, 7, 50, 17, 85, 10, 4, 5, 10, 6],
-                                   save_path=None, show_chart=True):
+def create_food_category_donut_chart(categories_data, save_path=None, show_chart=True):
+    """
+    Create food category donut chart from category counts dictionary.
+    
+    Args:
+        categories_data (dict): Dictionary with category names as keys and counts as values
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
+    if not categories_data:
+        return None
+        
+    labels = list(categories_data.keys())
+    values = list(categories_data.values())
+    
     # Data for the chart
-    labels = ['Мясо', 'Рыба', 'Овощи', 'Фрукты', 'Зерновые', 
-              'Молочные', 'Яйца', 'Бобовые', 'Кондитерские', 
-              'Сахаросодержащие напитки']
     colors = ['#B2E57B', '#FFD983', '#B2E6F9', '#FFADC9', '#72F2A4', 
               '#ADD8E6', '#F4A460', '#F08080', '#8A2BE2', '#FFA07A']
 
@@ -444,14 +529,21 @@ def create_food_category_donut_chart(values=[30, 7, 50, 17, 85, 10, 4, 5, 10, 6]
         fig.write_image(save_path, width=800, height=800, scale=2)
 
 
-def create_processing_level_donut_chart(values=[40, 30, 20, 10],
-                                      save_path=None, show_chart=True):
+def create_processing_level_donut_chart(processing_data, save_path=None, show_chart=True):
+    """
+    Create processing level donut chart from processing level percentages dictionary.
+    
+    Args:
+        processing_data (dict): Dictionary with processing level names as keys and percentages as values
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
+    if not processing_data:
+        return None
+        
+    labels = list(processing_data.keys())
+    values = list(processing_data.values())
+    
     # Data for the chart
-    labels = ['Продукты с высоким уровнем переработки', 
-              'Мало переработанные продукты', 
-              'Готовые блюда и полуфабрикаты', 
-              'Фастфуд']
     colors = ['#B2E57B', '#FFD983', '#72CFFB', '#FFADC9']
 
     # Combine labels and values for legend formatting
@@ -496,11 +588,21 @@ def create_processing_level_donut_chart(values=[40, 30, 20, 10],
         fig.write_image(save_path, width=800, height=800, scale=2)
 
 
-def create_nutrient_deficiencies_donut_chart(values=[52, 40, 8],
-                                           save_path=None, show_chart=True):
+def create_nutrient_deficiencies_donut_chart(deficits_data, save_path=None, show_chart=True):
+    """
+    Create nutrient deficiencies donut chart from deficits dictionary.
+    
+    Args:
+        deficits_data (dict): Dictionary with deficit categories as keys and counts as values
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
+    if not deficits_data:
+        return None
+        
+    labels = list(deficits_data.keys())
+    values = list(deficits_data.values())
+    
     # Data for the chart
-    labels = ['В норме', 'В дефиците', 'Надо ограничить']
     colors = ['#B2E57B', '#FFD983', '#72CFFB']
 
     # Combine labels and values for legend formatting
@@ -545,42 +647,30 @@ def create_nutrient_deficiencies_donut_chart(values=[52, 40, 8],
         fig.write_image(save_path, width=800, height=800, scale=2)
 
 
-def create_vitamins_chart(fact_values=[140, 150, 160, 100, 100, 180, 90, 70, 70, 70, 70, 70, 70, 130],
-                         norm_values=None,
-                         save_path=None, show_chart=True):
+def create_vitamins_chart(vitamins_data, save_path=None, show_chart=True):
+    """
+    Create vitamins chart from vitamins percentage dictionary.
+    
+    Args:
+        vitamins_data (dict): Dictionary with vitamin names as keys and percentage of norm as values
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
-    # Data from the table
-    if norm_values is None:
-        norm_values = [100] * len(fact_values)
-    vitamins = [
-        "Витамин A, ретинол",
-        "Витамин D, кальциферол",
-        "Витамин E, токоферол", 
-        "Витамин B1, тиамин",
-        "Витамин B2, рибофлавин",
-        "Витамин PP, ниацин",
-        "Витамин B4, холин",
-        "Витамин B5, пантотеновая кислота",
-        "Витамин B6, пиридоксин", 
-        "Витамин B8 (H), биотин",
-        "Витамин B9, фолаты",
-        "Витамин B12, кобаламин",
-        "Витамин C, аскорбиновая кислота",
-        "Витамин K, филлохинон"
-    ]
-
-    fact = fact_values
-    norm = norm_values
-    percentages = [(f / n) * 100 for f, n in zip(fact, norm)]
-
-    # Combine data and sort by vitamin name alphabetically
-    data = sorted(zip(vitamins, percentages), key=lambda x: x[0].split(',')[0].split()[1][0], reverse=True)
-    vitamins_sorted, percentages_sorted = zip(*data)
+    if not vitamins_data:
+        return None
+        
+    # Filter out None values while preserving order
+    vitamins_data = {k: v for k, v in vitamins_data.items() if v is not None}
+    
+    # Extract lists preserving original order
+    vitamins = list(vitamins_data.keys())
+    fact_values = list(vitamins_data.values())
+    norm_values = [100] * len(fact_values)
+    percentages = [(f / n) * 100 for f, n in zip(fact_values, norm_values)]
 
     # Colors based on percentage ranges
     colors = [
         "#A8D5BA" if p >= 100 else "#FFE29A" if p >= 50 else "#F4B6C2"
-        for p in percentages_sorted
+        for p in percentages
     ]
 
     # Create the horizontal bar chart
@@ -588,14 +678,14 @@ def create_vitamins_chart(fact_values=[140, 150, 160, 100, 100, 180, 90, 70, 70,
 
     # Add bars
     fig.add_trace(go.Bar(
-        x=percentages_sorted,
-        y=vitamins_sorted,
+        x=percentages,
+        y=vitamins,  # Original order from dict
         orientation='h',
         marker=dict(color=colors),
-        text=[f"{p:.0f}%" for p in percentages_sorted],  # Add percentage text
+        text=[f"{p:.0f}%" for p in percentages],
         textposition='outside',
         hovertemplate='<b>%{y}</b><br>Процент: %{x:.0f}%<extra></extra>',
-        width=0.4  # Make the bars thinner
+        width=0.4
     ))
 
     # Add vertical grey lines every 50%
@@ -603,7 +693,7 @@ def create_vitamins_chart(fact_values=[140, 150, 160, 100, 100, 180, 90, 70, 70,
         fig.add_shape(
             type="line",
             x0=x, x1=x,
-            y0=-0.5, y1=len(vitamins_sorted) - 0.5,
+            y0=-0.5, y1=len(vitamins) - 0.5,
             line=dict(color="lightgrey", width=0.5, dash="dash"),
             layer="below"  # Place the lines below the bars
         )
@@ -622,7 +712,7 @@ def create_vitamins_chart(fact_values=[140, 150, 160, 100, 100, 180, 90, 70, 70,
             title="",
             showgrid=False,
             categoryorder="array",
-            categoryarray=vitamins_sorted  # Maintain alphabetical order in the plot
+            categoryarray=vitamins  # Maintain alphabetical order in the plot
         ),
         bargap=0.5,  # Increase spacing between bars for thinner bars
         height=800,
@@ -636,34 +726,25 @@ def create_vitamins_chart(fact_values=[140, 150, 160, 100, 100, 180, 90, 70, 70,
     if save_path:
         fig.write_image(save_path, width=1000, height=800, scale=2)
 
-def create_minerals_chart(fact_values=[140, 150, 350, 320, 100, 350, 90, 70, 250, 211, 32, 89, 100, 130, 500, 180, 90],
-                         norm_values=[290, 310, 260, 200, 280, 270, 160, 140, 140, 140, 140, 140, 200, 230, 280, 270, 90],
-                         save_path=None, show_chart=True):
+def create_minerals_chart(minerals_data, save_path=None, show_chart=True):
+    """
+    Create minerals chart from minerals percentage dictionary.
+    
+    Args:
+        minerals_data (dict): Dictionary with mineral names as keys and percentage of norm as values
+    """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
-    # Data from the table
-    minerals = [
-        "Калий, K",
-        "Кальций, Ca",
-        "Магний, Mg",
-        "Фосфор, P",
-        "Железо, Fe",
-        "Хлор, Cl",
-        "Кремний, Si",
-        "Йод, I",
-        "Селен, Se",
-        "Цинк, Zn",
-        "Медь, Cu",
-        "Марганец, Mn",
-        "Молибден, Mo",
-        "Фтор, F",
-        "Кобальт, Co",
-        "Хром, Cr",
-        "Ванадий, V"
-    ]
-
-    fact = fact_values
-    norm = norm_values
-    percentages = [(f / n) * 100 for f, n in zip(fact, norm)]
+    if not minerals_data:
+        return None
+        
+    # Filter out None values while preserving order
+    minerals_data = {k: v for k, v in minerals_data.items() if v is not None}
+    
+    # Extract lists preserving original order
+    minerals = list(minerals_data.keys())
+    fact_values = list(minerals_data.values())
+    norm_values = [100] * len(fact_values)
+    percentages = [(f / n) * 100 for f, n in zip(fact_values, norm_values)]
 
     # Colors based on percentage ranges
     colors = [
@@ -677,10 +758,10 @@ def create_minerals_chart(fact_values=[140, 150, 350, 320, 100, 350, 90, 70, 250
     # Add bars
     fig.add_trace(go.Bar(
         x=percentages,
-        y=minerals,
+        y=minerals,  # Original order from dict
         orientation='h',
         marker=dict(color=colors),
-        text=[f"{p:.0f}%" for p in percentages],  # Add percentage text
+        text=[f"{p:.0f}%" for p in percentages],
         textposition='outside',
         hovertemplate='<b>%{y}</b><br>Процент: %{x:.0f}%<extra></extra>'
     ))

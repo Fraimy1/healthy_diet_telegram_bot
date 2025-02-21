@@ -25,3 +25,4 @@ beautifulsoup4==4.12.3
 uuid
 nbformat
 plotly
+kaleido
