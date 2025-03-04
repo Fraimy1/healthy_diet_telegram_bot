@@ -3,6 +3,7 @@ import plotly.io as pio
 import numpy as np
 from scipy.stats import norm
 import pandas as pd
+from utils.logger import logger
 
 # Add Russian month names mapping
 MONTH_NAMES = {
@@ -35,7 +36,7 @@ def create_bju_chart(bju_data, save_path=None, show_chart=True):
         (bju_data['Угл'] / total) * 100
     ]
     
-    labels = ['Белок', 'Жир', 'Углеводы']
+    labels = ['Белки', 'Жиры', 'Углеводы']
     colors = ['#B2E57B', '#FFD983', '#72CFFB']
     
     # Creating the pie chart
@@ -95,7 +96,7 @@ def create_bju_macro_chart(bju_macro_data, save_path=None, show_chart=True):
     ]
     
     # Data for the chart
-    labels = ['Белок', 'Жир', 'Вода', 'Пищевые волокна', 'Углеводы']
+    labels = ['Белки', 'Жиры', 'Вода', 'Пищевые волокна', 'Углеводы']
     colors = ['#B2E57B', '#FFD983', '#B2E6F9', '#FFADC9', '#72F2A4']
     
     # Creating the pie chart
@@ -142,6 +143,7 @@ def create_bju_dynamics_chart(bju_dynamics_data, save_path=None, show_chart=True
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
     
     if not bju_dynamics_data:
+        logger.warning("No BJU dynamics data provided")
         return None
         
     # Sort the data by date and convert to Russian month names
@@ -158,7 +160,7 @@ def create_bju_dynamics_chart(bju_dynamics_data, save_path=None, show_chart=True
         x=months,
         y=protein_values,
         mode='lines+markers',
-        name='Белок',
+        name='Белки',
         line=dict(color='#B2E57B', width=3),
         marker=dict(size=8)
     ))
@@ -166,7 +168,7 @@ def create_bju_dynamics_chart(bju_dynamics_data, save_path=None, show_chart=True
         x=months,
         y=fat_values,
         mode='lines+markers',
-        name='Жир',
+        name='Жиры',
         line=dict(color='#FFD983', width=3),
         marker=dict(size=8)
     ))
@@ -184,7 +186,7 @@ def create_bju_dynamics_chart(bju_dynamics_data, save_path=None, show_chart=True
         title_text="Динамика БЖУ",
         title_x=0.5,  # Center the title
         font=dict(size=16, family='Arial'),
-        xaxis_title="Кварталы",
+        xaxis_title="",  # Empty title, will be positioned below
         yaxis_title="Граммы",
         plot_bgcolor="white",  # Set background to white
         xaxis=dict(
@@ -201,12 +203,24 @@ def create_bju_dynamics_chart(bju_dynamics_data, save_path=None, show_chart=True
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=-0.2,
+            y=1.05,  # Moved up to avoid overlap
             xanchor="center",
             x=0.5
         ),
         width=800,  # Slightly wider for clarity
-        height=600
+        height=600,
+        margin=dict(b=100)  # Added bottom margin for axis title
+    )
+    
+    # Add "Месяцы" title below the chart to prevent overlap
+    fig.add_annotation(
+        text="Месяцы",
+        x=0.5,
+        y=-0.15,  # Position below the chart
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font=dict(size=16, family='Arial')
     )
     
     if show_chart:
@@ -395,6 +409,7 @@ def create_izp_dynamics_chart(izp_dynamics_data, save_path=None, show_chart=True
     """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
     if not izp_dynamics_data:
+        logger.warning("No IZP dynamics data provided")
         return None
         
     # Sort the data by date and convert to Russian month names
@@ -449,7 +464,19 @@ def create_izp_dynamics_chart(izp_dynamics_data, save_path=None, show_chart=True
             y=1.02,
             xanchor="left",
             x=0
-        )
+        ),
+        margin=dict(b=100)  # Added bottom margin for axis title
+    )
+    
+    # Add "Месяцы" title below the chart to prevent overlap
+    fig.add_annotation(
+        text="Месяцы",
+        x=0.5,
+        y=-0.15,  # Position below the chart
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font=dict(size=16, family='Arial')
     )
     
     if show_chart:
@@ -468,6 +495,7 @@ def create_food_category_donut_chart(categories_data, save_path=None, show_chart
     """
     assert save_path is not None or show_chart, "Either save_path or show_chart must be True"
     if not categories_data:
+        logger.warning("No food category data provided")
         return None
         
     labels = list(categories_data.keys())
