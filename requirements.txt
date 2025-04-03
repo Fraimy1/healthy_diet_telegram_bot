@@ -26,3 +26,4 @@ uuid
 nbformat
 plotly
 kaleido
+reportlab
