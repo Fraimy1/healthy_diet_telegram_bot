@@ -26,3 +26,5 @@ uuid
 nbformat
 plotly
 kaleido
+sqlalchemy
+reportlab

@@ -173,15 +173,24 @@ class ChartsCalculator:
         return multiplier_to_gram
 
     def _get_norms(self):
+        """Get nutrient norm values from the microelements table"""
         for col in microelements_columns:
-            logger.debug(self._microelements_table.iloc[2][col])
+            # Remove excessive logging of every column value
             if pd.isna(self._microelements_table.iloc[2][col]):
                 self.norms[col] = None
                 continue
             
-            norm = self._microelements_table.iloc[2][col] * self._microelements_table.iloc[1][col] / 1000
-            # to mg / 1000 => to g
-            self.norms[col] = norm
+            try:
+                norm = self._microelements_table.iloc[2][col] * self._microelements_table.iloc[1][col] / 1000
+                # to mg / 1000 => to g
+                self.norms[col] = norm
+            except Exception as e:
+                logger.warning(f"Error calculating norm for {col}: {e}")
+                self.norms[col] = None
+            
+        # Log summary instead of individual values
+        valid_norms = sum(1 for v in self.norms.values() if v is not None)
+        logger.debug(f"Loaded {valid_norms} valid norms out of {len(microelements_columns)} total columns")
 
     def get_data_for_user(self):
         """Get all data for the user including purchase datetime for each item"""

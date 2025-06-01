@@ -35,6 +35,8 @@ def data_initialization():
         with open(os.path.join('config', '.env'), 'w') as f:
             f.write('TELEGRAM_TOKEN=#Your token goes here')
     
+    os.makedirs(DATASETS_FOLDER, exist_ok=True)
+
     os.makedirs(DATABASE_PATH, exist_ok=True)
     os.makedirs(WEIGHTS_PATH, exist_ok=True)
 
